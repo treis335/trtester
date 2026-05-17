@@ -4,6 +4,17 @@ const { CONFIG } = require('../config/config');
 
 let sortedPairs = null;
 
+// Mapeamento do nome interno da DEX para o que aparece no ecrã
+const DEX_LABELS = {
+  DEXLYN:    'DLyn',
+  DEXLYN_V3: 'DLV3',
+  SPIKEY:    'Spky',
+};
+
+function getDexLabel(dex) {
+  return DEX_LABELS[dex] || dex.substring(0, 4);
+}
+
 function renderPrices(pairStates, boxes, walletBalances = {}) {
   const { headerBox, pricesBox } = boxes;
   const active = pairStates.filter(Boolean);
@@ -21,12 +32,15 @@ function renderPrices(pairStates, boxes, walletBalances = {}) {
     balanceLine = `{grey-fg}  Carteira: {/}${parts.join('  ')}\n`;
   }
 
+  const DEX_COL = 6; // nova coluna para a DEX
+
   const hdr = [
     '{bright-cyan-fg}{bold}  ◈  DEXLYN ARBITRAGE BOT v2.5.1{/}',
     '{grey-fg}  EMA Trend · Opt Size · Auto Score · ' + new Date().toLocaleDateString('pt-PT') + '{/}',
     balanceLine,
     `{yellow-fg}{bold}  MERCADO — ${active.length} pares activos{/}`,
     '{grey-fg}  ' +
+      'DEX'.padEnd(DEX_COL) +
       'PAR'.padEnd(12) +
       'PREÇO'.padEnd(12) +
       'TREND'.padEnd(5) +
@@ -36,7 +50,7 @@ function renderPrices(pairStates, boxes, walletBalances = {}) {
       'RES.B'.padEnd(8) +
       'FEE' +
     '{/}',
-    '{grey-fg}  ' + '─'.repeat(74) + '{/}',
+    '{grey-fg}  ' + '─'.repeat(DEX_COL + 12 + 12 + 5 + 9 + 14 + 8 + 8 + 6 + 2) + '{/}',
   ];
   headerBox.setContent(hdr.join('\n'));
 
@@ -52,10 +66,16 @@ function renderPrices(pairStates, boxes, walletBalances = {}) {
     const symA = CONFIG.tokens[ps.tokenA].symbol;
     const symB = CONFIG.tokens[ps.tokenB].symbol;
 
+    // DEX
+    const dexLabel = getDexLabel(ps.dex);
+    const dexCol = `{magenta-fg}${dexLabel.padEnd(DEX_COL)}{/}`;  // usa cor magenta para destacar
+
+    // PAR
     const pairRaw = `${symA}/${symB}`;
     const pairStr = `{bold}${symA}{/}/{grey-fg}${symB}{/}`;
     const pairPad = ' '.repeat(Math.max(0, 12 - pairRaw.length));
 
+    // PREÇO
     const priceStr = `{${t.priceTag}-fg}${ps.priceAinB.toFixed(6)}{/}`;
     const pricePad = ' '.repeat(Math.max(0, 12 - ps.priceAinB.toFixed(6).length));
 
@@ -71,7 +91,8 @@ function renderPrices(pairStates, boxes, walletBalances = {}) {
     const feePct = ((ps.fee / ps.feeScale) * 100).toFixed(2) + '%';
 
     L.push(
-      `  ${pairStr}${pairPad}${priceStr}${pricePad}` +
+      `  ${dexCol}` +
+      `${pairStr}${pairPad}${priceStr}${pricePad}` +
       `${trendStr}${tickStr}${sp}  ` +
       `{grey-fg}${rA}${rB}${feePct}{/}`
     );

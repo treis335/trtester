@@ -1,8 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const { SupraClient, HexString, SupraAccount, BCS, TxnBuilderTypes } = require('supra-l1-sdk');
-const { CONFIG } = require('../config/config');
-const { logError } = require('../utils/logError');
+const { CONFIG } = require('../../config/config');
+const { logError } = require('../../utils/logError');
 
 const scriptBytecode = (() => {
     try { return fs.readFileSync(path.join(__dirname, '..', 'move', 'arbitrage_script.mv')); }

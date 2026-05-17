@@ -1,8 +1,10 @@
 //tick.js
 const asyncLimit = require('../utils/asyncLimit');
 const { CONFIG } = require('../config/config');
-const priceEngine = require('../engine/priceEngine');
-const priceEngineV3 = require('../engine/priceEngineV3');
+const priceEngine = require('../dexes/dexlyn/dexlynEngine');
+const priceEngineV3 = require('../dexes/dexlyn/dexlynEngineV3');
+const spikeyEngine = require('../dexes/spikey/spikeyEngine');       // NOVO
+const { SPIKEY_CONFIG } = require('../dexes/spikey/spikeyConfig'); // NOVO
 const graphEngine = require('../engine/graphEngine');
 const { arbDetector } = require('../detector/arbDetector');
 const { logError } = require('../utils/logError');
@@ -15,7 +17,6 @@ const { fetchWalletBalance } = require('../utils/walletBalance');
 let bestOpportunity = null;
 let currentOpps = [];
 
-// ═══ Timeout wrapper para evitar bloqueios ═══
 function taskWithTimeout(task, ms = 20000) {
     return Promise.race([
         task,
@@ -25,7 +26,6 @@ function taskWithTimeout(task, ms = 20000) {
     ]);
 }
 
-// ═══ Auto-execução ═══
 let lastAutoTxTime = 0;
 let consecutiveFails = 0;
 let autoTxInProgress = false;
@@ -41,7 +41,6 @@ async function maybeAutoExecute(opps, balances, boxes) {
 
     const availableSUPRA = Math.max(0, (balances.SUPRA || 0) - cfg.gasReserveSUPRA);
 
-    // Filtra oportunidades viáveis
     const viableOpps = opps.filter(opp => {
         const tokenIn = opp.cycle.path[0];
         if (tokenIn !== 'SUPRA') return false;
@@ -57,7 +56,7 @@ async function maybeAutoExecute(opps, balances, boxes) {
     autoTxInProgress = true;
     lastAutoTxTime = now;
 
-    const { executeArbitrage } = require('../executor/executeArb');
+    const { executeArbitrage } = require('../dexes/dexlyn/dexlynExecute');
     const log = (msg) => {
         boxes.footerBox.setContent(msg);
         boxes.screen.render();
@@ -87,13 +86,13 @@ async function maybeAutoExecute(opps, balances, boxes) {
     autoTxInProgress = false;
 }
 
-// ═══ Tick principal ═══
 async function tick(boxes) {
     const t0 = Date.now();
     const limit = asyncLimit(CONFIG.maxConcurrent);
 
-    // ═══ 1. Buscar pares V2 ═══
     const tasks = [];
+
+    // ═══ 1. Dexlyn V2 ═══
     for (const [dexKey, dex] of Object.entries(CONFIG.dexes)) {
         for (const [tokenA, tokenB, curve] of dex.pairs) {
             tasks.push(limit(() =>
@@ -108,7 +107,7 @@ async function tick(boxes) {
         }
     }
 
-    // ═══ 2. Buscar pools V3 ═══
+    // ═══ 2. Dexlyn V3 ═══
     if (CONFIG.v3Pools && CONFIG.v3Pools.pools && CONFIG.v3Pools.pools.length > 0) {
         for (const v3pool of CONFIG.v3Pools.pools) {
             tasks.push(limit(() =>
@@ -116,26 +115,39 @@ async function tick(boxes) {
                     (async () => {
                         const state = await priceEngineV3.fetchPoolState(v3pool.address);
                         if (!state) return null;
-                        // Constrói um objeto compatível com o formato de pairState V2
                         return {
                             dex: 'DEXLYN_V3',
                             tokenA: v3pool.tokenA,
                             tokenB: v3pool.tokenB,
                             curve: 'clmm',
                             poolAddress: v3pool.address,
-                            state: state,           // estado completo da pool V3
+                            state: state,
                             reserveA: state.assetA,
                             reserveB: state.assetB,
                             fee: state.feeRate,
-                            feeScale: 10000,        // assumindo que feeRate está em base 10000
+                            feeScale: 10000,
                             priceAinB: priceEngineV3.getPrice(state, 'AB'),
-                            // Para simulação, usamos as funções do priceEngineV3
                             _simulate: (direction, amountIn) => priceEngineV3.simulateTrade(state, direction, amountIn)
                         };
                     })(),
                     20000
                 ).catch(e => {
                     logError(`fetchPoolV3 ${v3pool.address}`, e);
+                    return null;
+                })
+            ));
+        }
+    }
+
+    // ═══ 3. Spikey ═══
+    if (SPIKEY_CONFIG && SPIKEY_CONFIG.pairs && SPIKEY_CONFIG.pairs.length > 0) {
+        for (const pair of SPIKEY_CONFIG.pairs) {
+            tasks.push(limit(() =>
+                taskWithTimeout(
+                    spikeyEngine.fetchPairState(pair.address, pair.tokenA, pair.tokenB),
+                    20000
+                ).catch(e => {
+                    logError(`fetchSpikeyPair ${pair.address}`, e);
                     return null;
                 })
             ));
@@ -152,7 +164,6 @@ async function tick(boxes) {
         setRpcHealthy(false);
     }
 
-    // Liberta o event loop
     await new Promise(resolve => setImmediate(resolve));
 
     try {
@@ -175,12 +186,10 @@ async function tick(boxes) {
         currentOpps = [];
     }
 
-    // Saldo da carteira
     const walletBalances = process.env.SENDER_ADDRESS
         ? await fetchWalletBalance(process.env.SENDER_ADDRESS).catch(() => ({}))
         : {};
 
-    // ═══ Auto-execução silenciosa ═══
     if (CONFIG.autoExecute && CONFIG.autoExecute.enabled) {
         await maybeAutoExecute(opps, walletBalances, boxes).catch(e => logError('autoExecute', e));
     }

@@ -1,5 +1,5 @@
-const { CONFIG } = require('../config/config');
-const { logError } = require('../utils/logError');
+const { CONFIG } = require('../../config/config');
+const { logError } = require('../../utils/logError');
 const axios = require('axios');
 
 const CLMM_ROUTER_ADDRESS = '0xc3a610069fa7545cf14e266e849954bf385aca957bb489b1dc069a4baa29b502';

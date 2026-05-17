@@ -1,4 +1,4 @@
-const priceEngine = require('../engine/priceEngine');
+const priceEngine = require('../dexes/dexlyn/dexlynEngine');
 const { findOptimalAmount } = require('../engine/optimalSize');
 const { CONFIG } = require('../config/config');
 const { priceHistory } = require('../tracker/priceTracker');

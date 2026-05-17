@@ -3,7 +3,7 @@ const blessed = require('blessed');
 const fs = require('fs');
 const path = require('path');
 const { getBestOpportunity, getOpps } = require('../loop/tick');
-const { executeArbitrage } = require('../executor/executeArb');
+const { executeArbitrage } = require('../dexes/dexlyn/dexlynExecute');
 const { fetchWalletBalance } = require('../utils/walletBalance');
 const TxOverlay = require('./txOverlay');
 

@@ -1,7 +1,7 @@
 //priceEngine.js
-const callView = require('../utils/callView');
-const { logError } = require('../utils/logError');
-const { CONFIG } = require('../config/config');
+const callView = require('../../utils/callView');
+const { logError } = require('../../utils/logError');
+const { CONFIG } = require('../../config/config');
 
 // Cache de pares com TTL de 1,5 segundos
 const pairCache = new Map();

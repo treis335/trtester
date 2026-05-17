@@ -1,4 +1,4 @@
-const priceEngine = require('./priceEngine');
+const priceEngine = require('../dexes/dexlyn/dexlynEngine');
 
 function simulateCycleAmount(cycle, amountIn) {
   let amount = amountIn;
