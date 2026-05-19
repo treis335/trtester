@@ -9,22 +9,25 @@ const scriptBytecode = (() => {
     catch (e) { console.error('Script compilado não encontrado.'); return null; }
 })();
 
+function getSlippageFactor(reserveOut, decimalsOut) {
+    const liquidity = reserveOut / decimalsOut;
+    if (liquidity < 100) return 0.97;
+    if (liquidity < 1000) return 0.98;
+    if (liquidity < 10000) return 0.99;
+    return 0.995;
+}
+
 async function executeArbitrage(opportunity, onLog = () => {}) {
     if (!scriptBytecode) {
         onLog('{red-fg}Script compilado não encontrado.{/}');
         return null;
     }
-
-    // Guarda a referência original do console.log
-    const originalLog = console.log;
-
+    const origLog = console.log;
     try {
-        // 🔇 Silencia o console.log durante a transação para não sujar o terminal
         console.log = () => {};
-
         const client = await SupraClient.init('https://rpc-mainnet.supra.com');
-        const privateKeyHex = process.env.PRIVATE_KEY.startsWith('0x') ? process.env.PRIVATE_KEY : '0x' + process.env.PRIVATE_KEY;
-        const account = new SupraAccount(HexString.ensure(privateKeyHex).toUint8Array());
+        const pkHex = process.env.PRIVATE_KEY.startsWith('0x') ? process.env.PRIVATE_KEY : '0x' + process.env.PRIVATE_KEY;
+        const account = new SupraAccount(HexString.ensure(pkHex).toUint8Array());
 
         const { cycle, result, optimalAmount } = opportunity;
         const { steps } = result;
@@ -39,19 +42,22 @@ async function executeArbitrage(opportunity, onLog = () => {}) {
 
         const typeArgs = [
             tokenA.type, tokenB.type, tokenC.type,
-            `${dex.moduleAddress}::${curveAB}`,
-            `${dex.moduleAddress}::${curveBC}`,
-            `${dex.moduleAddress}::${curveCA}`,
+            `${dex.moduleAddress}::${curveAB}`, `${dex.moduleAddress}::${curveBC}`, `${dex.moduleAddress}::${curveCA}`,
         ];
 
         const amountIn = BigInt(Math.floor(optimalAmount * tokenA.decimals));
-        const minOutAB = BigInt(Math.floor(steps[0].amtOut * CONFIG.tokens[steps[0].to].decimals * 0.995));
-        const minOutBC = BigInt(Math.floor(steps[1].amtOut * CONFIG.tokens[steps[1].to].decimals * 0.995));
-        const minOutCA = BigInt(Math.floor(steps[2].amtOut * CONFIG.tokens[steps[2].to].decimals * 0.995));
+
+        const slipAB = getSlippageFactor(steps[0].pair.reserveB, CONFIG.tokens[steps[0].to].decimals);
+        const slipBC = getSlippageFactor(steps[1].pair.reserveB, CONFIG.tokens[steps[1].to].decimals);
+        const slipCA = getSlippageFactor(steps[2].pair.reserveB, CONFIG.tokens[steps[2].to].decimals);
+
+        const minOutAB = BigInt(Math.floor(steps[0].amtOut * CONFIG.tokens[steps[0].to].decimals * slipAB));
+        const minOutBC = BigInt(Math.floor(steps[1].amtOut * CONFIG.tokens[steps[1].to].decimals * slipBC));
+        const minOutCA = BigInt(Math.floor(steps[2].amtOut * CONFIG.tokens[steps[2].to].decimals * slipCA));
 
         onLog('{grey-fg}A obter sequence number...{/}');
-        const accountInfo = await client.getAccountInfo(new HexString(process.env.SENDER_ADDRESS));
-        const sequenceNumber = BigInt(accountInfo.sequence_number);
+        const accInfo = await client.getAccountInfo(new HexString(process.env.SENDER_ADDRESS));
+        const seq = BigInt(accInfo.sequence_number);
 
         onLog('{grey-fg}A construir script...{/}');
         const script = new TxnBuilderTypes.Script(
@@ -66,37 +72,39 @@ async function executeArbitrage(opportunity, onLog = () => {}) {
         );
 
         const payload = new TxnBuilderTypes.TransactionPayloadScript(script);
-        const rawTransaction = new TxnBuilderTypes.RawTransaction(
+        const rawTx = new TxnBuilderTypes.RawTransaction(
             new TxnBuilderTypes.AccountAddress(HexString.ensure(process.env.SENDER_ADDRESS).toUint8Array()),
-            sequenceNumber,
-            payload,
-            5000n,
-            100000n,
+            seq, payload, 5000n, 100000n,
             BigInt(Math.floor(Date.now() / 1000) + 300),
             new TxnBuilderTypes.ChainId(8)
         );
 
-        const serializer = new BCS.Serializer();
-        rawTransaction.serialize(serializer);
-        const serializedRawTx = serializer.getBytes();
+        const ser = new BCS.Serializer();
+        rawTx.serialize(ser);
+        const serTx = ser.getBytes();
+
+        // 🔍 Simular antes de enviar
+        onLog('{grey-fg}A simular transação...{/}');
+        try {
+            const simResult = await client.simulateTransaction(serTx, account);
+            if (!simResult?.success) {
+                onLog(`{yellow-fg}⚠️ Simulação falhou. Transação abortada para evitar perda de gás.{/}`);
+                return null;
+            }
+        } catch (_) {}
 
         onLog('{yellow-fg}A submeter transação...{/}');
-        const txResult = await client.sendTxUsingSerializedRawTransaction(
-            account,
-            serializedRawTx,
-            { enableWaitForTransaction: true, enableTransactionSimulation: true }
-        );
-
+        const txRes = await client.sendTxUsingSerializedRawTransaction(account, serTx, {
+            enableWaitForTransaction: true,
+            enableTransactionSimulation: false,
+        });
         onLog('{green-fg}✅ Transação submetida!{/}');
-        return { txHash: txResult.txHash, success: true };
-    } catch (err) {
-        logError('executeArbitrage', err);
-        onLog(`{red-fg}❌ Erro: ${err.message}{/}`);
+        return { txHash: txRes.txHash, success: true };
+    } catch (e) {
+        logError('executeArbitrage', e);
+        onLog(`{red-fg}❌ Erro: ${e.message}{/}`);
         return null;
-    } finally {
-        // 🔊 Restaura o console.log original
-        console.log = originalLog;
-    }
+    } finally { console.log = origLog; }
 }
 
 module.exports = { executeArbitrage };

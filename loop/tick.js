@@ -32,13 +32,11 @@ async function maybeAutoExecute(opps, balances, boxes) {
     const cfg = CONFIG.autoExecute;
     if (!cfg || !cfg.enabled) return;
     if (autoTxInProgress) return;
-
     const now = Date.now();
     if (now - lastAutoTxTime < cfg.cooldownMs) return;
     if (!opps || opps.length === 0) return;
 
     const availableSUPRA = Math.max(0, (balances.SUPRA || 0) - cfg.gasReserveSUPRA);
-
     const viableOpps = opps.filter(opp => {
         const tokenIn = opp.cycle.path[0];
         if (tokenIn !== 'SUPRA') return false;
@@ -47,23 +45,29 @@ async function maybeAutoExecute(opps, balances, boxes) {
         if (opp.optimalAmount > availableSUPRA) return false;
         return true;
     });
-
     if (viableOpps.length === 0) return;
 
     const bestOpp = viableOpps[0];
     autoTxInProgress = true;
     lastAutoTxTime = now;
 
-    const { executeArbitrage } = require('../dexes/dexlyn/dexlynExecute');
-    const log = (msg) => {
-        boxes.footerBox.setContent(msg);
-        boxes.screen.render();
-    };
-
+    const log = (msg) => { boxes.footerBox.setContent(msg); boxes.screen.render(); };
     log(`{yellow-fg}🤖 Auto-execução: ${bestOpp.cycle.path.map(t => CONFIG.tokens[t]?.symbol || t).join(' → ')} (+${bestOpp.result.profitPct.toFixed(3)}%){/}`);
 
     try {
-        const res = await executeArbitrage(bestOpp, () => {});
+        // Seleciona o executor conforme a composição da rota
+        const dexesInRoute = new Set(bestOpp.cycle.edges.map(e => e.pair.dex));
+        let res;
+        if (dexesInRoute.size === 1 && dexesInRoute.has('SPIKEY')) {
+            const { executeSpikeySwap } = require('../dexes/spikey/spikeyExecute');
+            res = await executeSpikeySwap(bestOpp, () => {});
+        } else if (dexesInRoute.size === 1 && (dexesInRoute.has('DEXLYN') || dexesInRoute.has('DEXLYN_V3'))) {
+            const { executeArbitrage } = require('../dexes/dexlyn/dexlynExecute');
+            res = await executeArbitrage(bestOpp, () => {});
+        } else {
+            const { executeCrossArbitrage } = require('../executor/executeCrossArb');
+            res = await executeCrossArbitrage(bestOpp, () => {});
+        }
         if (res && res.txHash) {
             log(`{green-fg}✅ Sucesso! Tx: ${res.txHash.slice(0,10)}...{/}`);
         } else {
@@ -72,10 +76,6 @@ async function maybeAutoExecute(opps, balances, boxes) {
     } catch (e) {
         log(`{red-fg}❌ Erro: ${e.message}{/}`);
     }
-
-    // 🔥 Removida a lógica que desligava o automático após falhas consecutivas.
-    // O bot permanece em modo AUTO até que o utilizador pressione a tecla 'a'.
-
     autoTxInProgress = false;
 }
 
