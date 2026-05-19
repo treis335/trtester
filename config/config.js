@@ -1,21 +1,21 @@
-// config/config.js — Dexlyn + Spikey cross‑DEX (tokens completos)
+// config/config.js — Dexlyn + Spikey cross‑DEX (metadados reais)
 const CONFIG = {
   rpc: 'https://rpc-mainnet.supra.com',
   pollingMs: 3500,
   emaAlpha: 0.35,
   tickHistory: 12,
-  minProfitPct: 0.10,
+  minProfitPct: 0.09,
   optimalSearch: { min: 10, max: 10000, iterations: 20 },
   scoreWeights: { profit: 0.60, liquidity: 0.25, trend: 0.15 },
   arbLogMax: 8,
-  viewTimeout: 12000,
+  viewTimeout: 11000,
   viewRetries: 3,
   maxConcurrent: 4,
 
   autoExecute: {
     enabled: true,
-    minProfitPct: 0.35,
-    minScore: 25,
+    minProfitPct: 0.10,
+    minScore: 20,
     gasReserveSUPRA: 0.09,
     cooldownMs: 5000,
     maxConsecutiveFails: 3,
@@ -76,7 +76,7 @@ const CONFIG = {
   },
 
   tokens: {
-    // ═══ Tokens originais da Dexlyn ═══
+    // ═══ Tokens originais da Dexlyn (Coin legado) ═══
     SUPRA:    { type: '0x1::supra_coin::SupraCoin', decimals: 1e8, symbol: 'SUPRA' },
     DEXUSDC:  { type: '0x8f7d16ade319b0fce368ca6cdb98589c4527ce7f5b51e544a9e68e719934458b::hyper_coin::DexlynUSDC', decimals: 1e6, symbol: 'dexUSDC' },
     LUCKY:    { type: '0x4205c82380bff5708cd7c59e0043a45890a457a6cdb60c9191d818958fd7ac26::LUCKY::LUCKY', decimals: 1e6, symbol: 'LUCKY' },
@@ -105,28 +105,21 @@ const CONFIG = {
     SUPD:     { type: '0x16aae30a40726dec7737b738ff8c586623d52f861c0ed997994b0498b9a7cacd::SUPD::SUPD', decimals: 1e6, symbol: 'SUPD' },
     STC:      { type: '0xaccc77c23159a80af1fff5aaee9c29d07915836b26a1fd8c0e1bed149f24cabc::stc::STC', decimals: 1e6, symbol: 'STC' },
 
-    // ═══ Tokens exclusivos da Spikey (metadados das transações) ═══
-    // NOTA: nomes de módulo assumidos como o símbolo. Corrigir se necessário.
+    // ═══ Tokens exclusivos da Spikey (Fungible Assets, metadados reais) ═══
     SOUP:     { type: '0xf11aa44964cfa8396f6519b54cb212915477cfb792c6451a5d79dc6df352e908::soup::SOUP', decimals: 1e6, symbol: 'SOUP' },
-    supUSDC:  { type: '0xf90b793d8b4b9d4a9d87c39fb3140513e52edc3ead5eaddcb9881b02becdeb63c5793d::supUSDC::SupUSDC', decimals: 1e6, symbol: 'supUSDC' },
-    supETH:   { type: '0xe4af246d2a6d2d6b3c6e3b3a6d2d6b3c6e3b3a6d2d6b3c6e3b3a6d2d6b3c6e3b3a6d::supETH::SupETH', decimals: 1e6, symbol: 'supETH' },
     JONES:    { type: '0x8fd1550a61055c1406e04d1a0ddf7049d00c889b59f6823f21ca7d842e1eaf3c::jones::JONES', decimals: 1e6, symbol: 'JONES' },
     DRAGON:   { type: '0x492426412135ce55b9c0e3389cbb62569e7192cd5a15963bf00c96cd9d1c578d::dragon::DRAGON', decimals: 1e6, symbol: 'DRAGON' },
-    ACD:      { type: '0x35d22638c4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a::acd::ACD', decimals: 1e6, symbol: 'ACD' },
-    SVLT:     { type: '0x2a0f6358c4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a::svlt::SVLT', decimals: 1e6, symbol: 'SVLT' },
-    SOLID:    { type: '0xaa9252aec4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a::solid::SOLID', decimals: 1e6, symbol: 'SOLID' },
-    stSOLID:  { type: '0xcef206a0c4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a::stSOLID::StSOLID', decimals: 1e6, symbol: 'stSOLID' },
-    stSUPRA:  { type: '0x45915273c4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a::stSUPRA::StSUPRA', decimals: 1e6, symbol: 'stSUPRA' },
-    SYRUP:    { type: '0xacdc6851c4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a::syrup::SYRUP', decimals: 1e6, symbol: 'SYRUP' },
-    iSUPRA:   { type: '0x80f03a3dc4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a::iSUPRA::ISUPRA', decimals: 1e6, symbol: 'iSUPRA' },
-    iUSDC:    { type: '0x90a8b281c4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a::iUSDC::IUSDC', decimals: 1e6, symbol: 'iUSDC' },
-    iUSDT:    { type: '0xceff1fcac4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a::iUSDT::IUSDT', decimals: 1e6, symbol: 'iUSDT' },
-    iETH:     { type: '0xa0042a86c4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a::iETH::IETH', decimals: 1e6, symbol: 'iETH' },
-    TCP:      { type: '0x3bccf225c4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a::tcp::TCP', decimals: 1e6, symbol: 'TCP' },
-    HERO:     { type: '0xcd8c756cc4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a::hero::HERO', decimals: 1e6, symbol: 'HERO' },
-    BEYOND8:  { type: '0xe8e47148c4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a::beyond8::BEYOND8', decimals: 1e6, symbol: 'BEYOND8' },
-    BLWK:     { type: '0x166fc895c4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a::blwk::BLWK', decimals: 1e6, symbol: 'BLWK' },
-    ARTC:     { type: '0xd7e5cf57c4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a4d4a::artc::ARTC', decimals: 1e6, symbol: 'ARTC' },
+    ACD:      { type: '0x35d24c1702f9a3d6079213b0b10f8abc310eec18bb6b4b5febc977762a302638::acd::ACD', decimals: 1e6, symbol: 'ACD' },
+    supUSDC:  { type: '0xf90b4b9d4a9d87c39fb3140513e52edc3ead5eaddcb9881b02becdeb63c5793d::supusdc::SUPUSDC', decimals: 1e6, symbol: 'supUSDC' },
+    supETH:   { type: '0xe4af154ade9551e7f58a23b8f727ae2dca050f1b74582bb518ba361c889d246d::supeth::SUPETH', decimals: 1e6, symbol: 'supETH' },
+    SVLT:     { type: '0x2a0f3e6fb5d0f25c0d75cc4ffb93ace26757939fd4aa497c7f1dbaff7e3c6358::svlt::SVLT', decimals: 1e6, symbol: 'SVLT' },
+    SOLID:    { type: '0xaa925a2232144c11dfe855178e1d252a8d0d4f51f5572fc0ec34efa6333952ae::solid::SOLID', decimals: 1e6, symbol: 'SOLID' },
+    stSOLID:  { type: '0xcef22ecc2e7b480f38000d6e78e3b0e6f4de12ea190e0893a9adbcc4599c06a0::stsolid::STSOLID', decimals: 1e6, symbol: 'stSOLID' },
+    stSUPRA:  { type: '0x4591f09cb709c7095bf3adfd5b92f921dd681f3d7adcd117d718308008c85273::stsupra::STSUPRA', decimals: 1e6, symbol: 'stSUPRA' },
+    SYRUP:    { type: '0xacdc9106c5595a6d23158d39ba57f33ee37dc4d3523729d83e3f0d232d3d6851::syrup::SYRUP', decimals: 1e6, symbol: 'SYRUP' },
+    iSUPRA:   { type: '0x80f0251b74c76f1c477b9209ade65ffb5cfecd9b259875c3865ad645f6c33a3d::isupra::ISUPRA', decimals: 1e6, symbol: 'iSUPRA' },
+    iUSDC:    { type: '0x90a8e901e02ac1539af4a865bbe4a6b96edc27375488803cfbbd6875ec57b281::iusdc::IUSDC', decimals: 1e6, symbol: 'iUSDC' },
+    iUSDT:    { type: '0xceff14089bde0d4f512dcd3b6f3df6794346c58115b8d97e043f92ff08cd1fca::iusdt::IUSDT', decimals: 1e6, symbol: 'iUSDT' },
   },
 };
 
