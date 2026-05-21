@@ -184,6 +184,7 @@
         }
         footer .highlight { color: var(--text); font-weight: 500; }
         footer .divider { width: 1px; height: 14px; background: var(--border); margin: 0 10px; }
+        .dex-atms { background: rgba(210,153,29,0.12); color: #d2991d; }
 
         ::-webkit-scrollbar { width: 5px; }
         ::-webkit-scrollbar-track { background: transparent; }
@@ -302,6 +303,7 @@
                     let dexClass = 'dex-dlyn';
                     if (dex === 'DLV3') dexClass = 'dex-dlv3';
                     if (dex === 'Spky') dexClass = 'dex-spky';
+                    if (dex === 'Atms') dexClass = 'dex-atms';
                     return `<tr>
                         <td><span class="dex-tag ${dexClass}">${dex}</span></td>
                         <td><b>${p.tokenA}</b>/<span style="color:var(--muted)">${p.tokenB}</span></td>

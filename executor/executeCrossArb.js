@@ -13,13 +13,10 @@ const scriptBytecode = (() => {
  * Retorna o endereço do módulo que contém as curvas para cada DEX.
  */
 function getModuleAddress(dex) {
-    if (dex === 'SPIKEY') {
-        return '0x3045d27b5fada1e30897a741fb184e48ef0bff3717aea23918ebc1e5c7153083';
-    }
-    // Dexlyn V2 / V3
+    if (dex === 'SPIKEY') return '0x3045d27b5fada1e30897a741fb184e48ef0bff3717aea23918ebc1e5c7153083';
+    if (dex === 'ATMOS') return '0xa4a4a31116e114bf3c4f4728914e6b43db73279a4421b0768993e07248fe2234';
     return CONFIG.dexes.DEXLYN.moduleAddress;
 }
-
 /**
  * Retorna o caminho completo da curva (ex: "0x...::curves::Uncorrelated").
  */
@@ -28,7 +25,6 @@ function getCurvePath(dex, curve) {
     if (curve === 'constant_product' || curve === 'clmm') {
         return `${moduleAddr}::curves::Uncorrelated`;
     }
-    // Dexlyn V2 tem as curvas mapeadas em curveTypes
     if (CONFIG.dexes.DEXLYN.curveTypes[curve]) {
         return `${moduleAddr}::${CONFIG.dexes.DEXLYN.curveTypes[curve]}`;
     }

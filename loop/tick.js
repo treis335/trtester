@@ -4,8 +4,8 @@ const priceEngine = require('../dexes/dexlyn/dexlynEngine');
 const priceEngineV3 = require('../dexes/dexlyn/dexlynEngineV3');
 const spikeyEngine = require('../dexes/spikey/spikeyEngine');
 const { SPIKEY_CONFIG } = require('../dexes/spikey/spikeyConfig');
-const atmosEngine = require('../dexes/atmos/atmosEngine');           // NOVO
-const { ATMOS_CONFIG } = require('../dexes/atmos/atmosConfig');      // NOVO
+const atmosEngine = require('../dexes/atmos/atmosEngine');
+const { ATMOS_CONFIG } = require('../dexes/atmos/atmosConfig');
 const graphEngine = require('../engine/graphEngine');
 const { arbDetector } = require('../detector/arbDetector');
 const { logError } = require('../utils/logError');
@@ -154,10 +154,8 @@ async function tick(boxes) {
     }
 
     // ═══ 4. Atmos ═══
-    let atmosPools = [];
-    try { atmosPools = require('../../atmosPools.json'); } catch {}
-    if (atmosPools.length > 0) {
-        for (const pool of atmosPools) {
+    if (ATMOS_CONFIG && ATMOS_CONFIG.pools && ATMOS_CONFIG.pools.length > 0) {
+        for (const pool of ATMOS_CONFIG.pools) {
             tasks.push(limit(() =>
                 taskWithTimeout(
                     atmosEngine.fetchPairState(pool.address),
