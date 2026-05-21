@@ -1,9 +1,9 @@
+// dexes/spikey/spikeyEngine.js — Lê pools da Spikey com _simulate para cross‑DEX
 const { CONFIG } = require('../../config/config');
 const { logError } = require('../../utils/logError');
 const callView = require('../../utils/callView');
 
 const SPIKEY = '0x3045d27b5fada1e30897a741fb184e48ef0bff3717aea23918ebc1e5c7153083';
-
 const DECIMALS = { SUPRA: 1e8, CASH: 1e8, SPIKE: 1e3 };
 function getDecimals(sym) { return DECIMALS[sym] || 1e6; }
 
@@ -14,16 +14,16 @@ const spikeyEngine = {
                 callView(SPIKEY, 'amm_pair::get_reserves', [], [poolAddress]),
                 callView(SPIKEY, 'amm_controller::get_swap_fee', [], []).catch(() => [25]),
             ]);
-
             if (!reserves || !Array.isArray(reserves) || reserves.length < 2) return null;
             const r0 = Number(reserves[0]), r1 = Number(reserves[1]);
             if (r0 === 0 && r1 === 0) return null;
-
             const feeBps = Number(Array.isArray(fee) ? fee[0] : fee);
             const decA = getDecimals(tokenA), decB = getDecimals(tokenB);
-
             const amountOut = this.getAmountOut(r0, r1, decA, feeBps, 10000);
             const priceAinB = amountOut / decB;
+
+            // ⚡ Guarda referência para usar no _simulate
+            const engine = this;
 
             return {
                 dex: 'SPIKEY',
@@ -33,6 +33,11 @@ const spikeyEngine = {
                 reserveA: r0, reserveB: r1,
                 fee: feeBps, feeScale: 10000,
                 priceAinB: isNaN(priceAinB) ? 0 : priceAinB,
+                // ⚡ Interface unificada — necessária para o optimalSize
+                _simulate: (direction, amountIn) => engine.simulateTrade(
+                    { tokenA, tokenB, reserveA: r0, reserveB: r1, fee: feeBps, feeScale: 10000 },
+                    direction, amountIn
+                ),
             };
         } catch (e) {
             logError(`fetchSpikeyPair ${poolAddress}`, e);
