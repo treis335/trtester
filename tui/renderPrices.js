@@ -6,6 +6,7 @@ const DEX_LABELS = {
   DEXLYN:    'DLyn',
   DEXLYN_V3: 'DLV3',
   SPIKEY:    'Spky',
+  ATMOS:     'Atms',
 };
 
 function getDexLabel(dex) {

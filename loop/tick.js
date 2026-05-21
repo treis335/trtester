@@ -4,6 +4,8 @@ const priceEngine = require('../dexes/dexlyn/dexlynEngine');
 const priceEngineV3 = require('../dexes/dexlyn/dexlynEngineV3');
 const spikeyEngine = require('../dexes/spikey/spikeyEngine');
 const { SPIKEY_CONFIG } = require('../dexes/spikey/spikeyConfig');
+const atmosEngine = require('../dexes/atmos/atmosEngine');           // NOVO
+const { ATMOS_CONFIG } = require('../dexes/atmos/atmosConfig');      // NOVO
 const graphEngine = require('../engine/graphEngine');
 const { arbDetector } = require('../detector/arbDetector');
 const { logError } = require('../utils/logError');
@@ -12,7 +14,7 @@ const renderArb = require('../tui/renderArb');
 const renderLog = require('../tui/renderlog');
 const { renderFooter, setRpcHealthy } = require('../tui/renderFooter');
 const { fetchWalletBalance } = require('../utils/walletBalance');
-const { broadcast } = require('../server');   // ← NOVO
+const { broadcast } = require('../server');
 
 let bestOpportunity = null;
 let currentOpps = [];
@@ -61,10 +63,14 @@ async function maybeAutoExecute(opps, balances, boxes) {
         if (dexesInRoute.size === 1 && dexesInRoute.has('SPIKEY')) {
             const { executeSpikeySwap } = require('../dexes/spikey/spikeyExecute');
             res = await executeSpikeySwap(bestOpp, () => {});
+        } else if (dexesInRoute.size === 1 && dexesInRoute.has('ATMOS')) {
+            const { executeAtmosSwap } = require('../dexes/atmos/atmosExecute');
+            res = await executeAtmosSwap(bestOpp, () => {});
         } else if (dexesInRoute.size === 1 && (dexesInRoute.has('DEXLYN') || dexesInRoute.has('DEXLYN_V3'))) {
             const { executeArbitrage } = require('../dexes/dexlyn/dexlynExecute');
             res = await executeArbitrage(bestOpp, () => {});
         } else {
+            // Cross‑DEX (inclui Atmos + qualquer outro)
             const { executeCrossArbitrage } = require('../executor/executeCrossArb');
             res = await executeCrossArbitrage(bestOpp, () => {});
         }
@@ -147,6 +153,23 @@ async function tick(boxes) {
         }
     }
 
+    // ═══ 4. Atmos ═══
+    let atmosPools = [];
+    try { atmosPools = require('../../atmosPools.json'); } catch {}
+    if (atmosPools.length > 0) {
+        for (const pool of atmosPools) {
+            tasks.push(limit(() =>
+                taskWithTimeout(
+                    atmosEngine.fetchPairState(pool.address),
+                    20000
+                ).catch(e => {
+                    logError(`fetchAtmosPair ${pool.address}`, e);
+                    return null;
+                })
+            ));
+        }
+    }
+
     let pairStates, graph, cycles, opps;
     try {
         pairStates = await Promise.all(tasks);
@@ -201,7 +224,7 @@ async function tick(boxes) {
         rpcHealthy: pairStates.length > 0,
         autoMode: CONFIG.autoExecute.enabled,
         pairs: pairStates.map(ps => ({
-            dex: ps.dex === 'SPIKEY' ? 'Spky' : (ps.dex === 'DEXLYN_V3' ? 'DLV3' : 'DLyn'),
+            dex: ps.dex === 'SPIKEY' ? 'Spky' : (ps.dex === 'ATMOS' ? 'Atms' : (ps.dex === 'DEXLYN_V3' ? 'DLV3' : 'DLyn')),
             tokenA: ps.tokenA,
             tokenB: ps.tokenB,
             priceAinB: ps.priceAinB,
