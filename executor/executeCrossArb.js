@@ -9,6 +9,40 @@ const scriptBytecode = (() => {
     catch (e) { console.error('Script cross‑DEX não encontrado.'); return null; }
 })();
 
+/**
+ * Retorna o endereço do módulo que contém as curvas para cada DEX.
+ */
+function getModuleAddress(dex) {
+    if (dex === 'SPIKEY') {
+        return '0x3045d27b5fada1e30897a741fb184e48ef0bff3717aea23918ebc1e5c7153083';
+    }
+    // Dexlyn V2 / V3
+    return CONFIG.dexes.DEXLYN.moduleAddress;
+}
+
+/**
+ * Retorna o caminho completo da curva (ex: "0x...::curves::Uncorrelated").
+ */
+function getCurvePath(dex, curve) {
+    const moduleAddr = getModuleAddress(dex);
+    if (curve === 'constant_product' || curve === 'clmm') {
+        return `${moduleAddr}::curves::Uncorrelated`;
+    }
+    // Dexlyn V2 tem as curvas mapeadas em curveTypes
+    if (CONFIG.dexes.DEXLYN.curveTypes[curve]) {
+        return `${moduleAddr}::${CONFIG.dexes.DEXLYN.curveTypes[curve]}`;
+    }
+    return `${moduleAddr}::curves::Uncorrelated`;
+}
+
+function getSlippage(reserveOut, decimalsOut) {
+    const liq = reserveOut / decimalsOut;
+    if (liq < 100) return 0.97;
+    if (liq < 1000) return 0.98;
+    if (liq < 10000) return 0.99;
+    return 0.995;
+}
+
 async function executeCrossArbitrage(opportunity, onLog = () => {}) {
     if (!scriptBytecode) {
         onLog('{red-fg}Script cross‑DEX não compilado. Coloca crossdex_arbitrage.mv em src/move/.{/}');
@@ -27,26 +61,20 @@ async function executeCrossArbitrage(opportunity, onLog = () => {}) {
         const tokenA = CONFIG.tokens[cycle.path[0]];
         const tokenB = CONFIG.tokens[cycle.path[1]];
         const tokenC = CONFIG.tokens[cycle.path[2]];
-        const dex = CONFIG.dexes.DEXLYN;
 
-        const curveAB = steps[0].pair.curve === 'constant_product' ? 'curves::Uncorrelated' : dex.curveTypes[steps[0].pair.curve];
-        const curveBC = steps[1].pair.curve === 'constant_product' ? 'curves::Uncorrelated' : dex.curveTypes[steps[1].pair.curve];
-        const curveCA = steps[2].pair.curve === 'constant_product' ? 'curves::Uncorrelated' : dex.curveTypes[steps[2].pair.curve];
+        // Determinar a curva de cada hop com o endereço da DEX correta
+        const curveAB = getCurvePath(steps[0].pair.dex, steps[0].pair.curve);
+        const curveBC = getCurvePath(steps[1].pair.dex, steps[1].pair.curve);
+        const curveCA = getCurvePath(steps[2].pair.dex, steps[2].pair.curve);
 
         const typeArgs = [
             tokenA.type, tokenB.type, tokenC.type,
-            `${dex.moduleAddress}::${curveAB}`,
-            `${dex.moduleAddress}::${curveBC}`,
-            `${dex.moduleAddress}::${curveCA}`,
+            curveAB,
+            curveBC,
+            curveCA,
         ];
 
         const amountIn = BigInt(Math.floor(optimalAmount * tokenA.decimals));
-
-        function getSlippage(reserveOut, decimalsOut) {
-            const liq = reserveOut / decimalsOut;
-            if (liq < 100) return 0.97; else if (liq < 1000) return 0.98;
-            else if (liq < 10000) return 0.99; else return 0.995;
-        }
 
         const slipAB = getSlippage(steps[0].pair.reserveB, CONFIG.tokens[steps[0].to]?.decimals || 1e6);
         const slipBC = getSlippage(steps[1].pair.reserveB, CONFIG.tokens[steps[1].to]?.decimals || 1e6);
