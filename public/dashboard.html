@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Dexlyn Arb Bot — Dashboard</title>
+    <style>
+        :root {
+            --bg: #0d1117;
+            --card: #161b22;
+            --border: #30363d;
+            --text: #c9d1d9;
+            --muted: #8b949e;
+            --green: #3fb950;
+            --red: #f85149;
+            --gold: #d2991d;
+            --blue: #58a6ff;
+            --header-bg: #010409;
+            --hover: #1c2129;
+            --font: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+            --mono: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', 'Courier New', monospace;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { font-size: 16px; }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font);
+            height: 100vh;
+            height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        header {
+            background: var(--header-bg);
+            border-bottom: 1px solid var(--border);
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+            z-index: 10;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        header .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+        header .brand .logo {
+            width: 12px; height: 12px;
+            background: var(--green);
+            border-radius: 50%;
+            box-shadow: 0 0 8px var(--green);
+            animation: pulse 2s infinite;
+            flex-shrink: 0;
+        }
+        @keyframes pulse {
+            0%,100% { box-shadow: 0 0 8px var(--green); }
+            50% { box-shadow: 0 0 18px var(--green); }
+        }
+        header h1 {
+            font-size: 1rem; font-weight: 600;
+            letter-spacing: 0.3px; white-space: nowrap;
+            overflow: hidden; text-overflow: ellipsis; color: var(--text);
+        }
+        header .meta {
+            display: flex; align-items: center; gap: 16px;
+            font-size: 0.85rem; flex-wrap: wrap;
+        }
+        header .meta .label {
+            color: var(--muted); text-transform: uppercase;
+            letter-spacing: 0.8px; font-size: 0.65rem;
+        }
+        header .meta .value { font-weight: 500; }
+        .status {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 5px 12px; border-radius: 14px; font-size: 0.75rem; font-weight: 500;
+        }
+        .status.ok { background: rgba(63,185,80,0.1); color: var(--green); }
+        .status.fail { background: rgba(248,81,73,0.1); color: var(--red); }
+        .status-dot { width: 7px; height: 7px; border-radius: 50%; }
+        .status.ok .status-dot { background: var(--green); }
+        .status.fail .status-dot { background: var(--red); }
+        .badge-auto {
+            padding: 5px 12px; border-radius: 14px; font-size: 0.75rem; font-weight: 600;
+            letter-spacing: 0.3px;
+        }
+        .badge-auto.on {
+            background: rgba(63,185,80,0.12); color: var(--green);
+            border: 1px solid rgba(63,185,80,0.25);
+        }
+        .badge-auto.off {
+            background: rgba(139,148,158,0.1); color: var(--muted);
+            border: 1px solid rgba(139,148,158,0.2);
+        }
+
+        main {
+            flex: 1; display: grid;
+            grid-template-columns: 2fr 1fr;
+            grid-template-rows: auto 1fr auto;
+            gap: 1px; background: var(--border); overflow: hidden; min-height: 0;
+        }
+        .panel {
+            background: var(--card); padding: 14px 16px;
+            overflow: hidden; display: flex; flex-direction: column; min-height: 0;
+        }
+        .panel-header {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 10px; flex-shrink: 0;
+        }
+        .panel-header h2 {
+            font-size: 0.8rem; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 1.2px; color: var(--muted);
+        }
+        .panel-header .count {
+            font-size: 0.7rem; color: var(--muted);
+            background: rgba(139,148,158,0.08); padding: 3px 10px; border-radius: 8px;
+        }
+
+        .ticker {
+            grid-column: 1 / -1; background: var(--header-bg);
+            border-bottom: 1px solid var(--border); padding: 12px 0;
+            overflow: hidden; white-space: nowrap; position: relative; display: none; /* REMOVIDO TICKER */
+        }
+
+        .scroll-area {
+            flex: 1; overflow-y: auto; min-height: 0;
+            -webkit-overflow-scrolling: touch;
+        }
+        table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+        table th {
+            text-align: left; padding: 8px 10px; font-size: 0.65rem;
+            text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted);
+            border-bottom: 1px solid var(--border);
+            position: sticky; top: 0; background: var(--card); z-index: 1;
+        }
+        table td {
+            padding: 7px 10px; border-bottom: 1px solid rgba(48,54,61,0.4);
+            white-space: nowrap;
+        }
+        table tbody tr { transition: background 0.15s; }
+        table tbody tr:hover { background: var(--hover); }
+        .dex-tag {
+            display: inline-block; padding: 3px 8px; border-radius: 4px;
+            font-size: 0.65rem; font-weight: 600; letter-spacing: 0.4px;
+        }
+        .dex-dlyn { background: rgba(88,166,255,0.12); color: var(--blue); }
+        .dex-dlv3 { background: rgba(210,153,29,0.12); color: var(--gold); }
+        .dex-spky { background: rgba(63,185,80,0.12); color: var(--green); }
+
+        .opp-item { padding: 12px 0; border-bottom: 1px solid rgba(48,54,61,0.3); }
+        .opp-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap; }
+        .opp-badge {
+            display: inline-block; padding: 4px 10px; border-radius: 4px;
+            font-size: 0.7rem; font-weight: 600; letter-spacing: 0.4px;
+        }
+        .opp-hot { background: rgba(63,185,80,0.15); color: var(--green); }
+        .opp-warm { background: rgba(210,153,29,0.15); color: var(--gold); }
+        .opp-cold { background: rgba(139,148,158,0.1); color: var(--muted); }
+        .opp-profit { font-weight: 600; font-size: 0.9rem; font-family: var(--mono); }
+        .opp-route { font-size: 0.75rem; color: var(--muted); margin-top: 3px; word-break: break-all; }
+        .score-bar { height: 5px; background: rgba(139,148,158,0.15); border-radius: 3px; margin-top: 6px; overflow: hidden; }
+        .score-fill { height: 100%; border-radius: 3px; transition: width 0.5s; }
+        .score-hot { background: var(--green); }
+        .score-warm { background: var(--gold); }
+        .score-cold { background: var(--muted); }
+
+        .log-entry {
+            padding: 7px 0; border-bottom: 1px solid rgba(48,54,61,0.2);
+            font-size: 0.75rem; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+        }
+        .log-time { color: var(--muted); flex-shrink: 0; }
+        .log-pct { font-weight: 600; flex-shrink: 0; }
+        .log-profit { color: var(--gold); font-weight: 500; flex-shrink: 0; }
+        .log-path { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+        footer {
+            background: var(--header-bg); border-top: 1px solid var(--border);
+            padding: 10px 20px; display: flex; align-items: center;
+            justify-content: space-between; font-size: 0.75rem; color: var(--muted);
+            flex-shrink: 0; flex-wrap: wrap; gap: 8px;
+        }
+        footer .highlight { color: var(--text); font-weight: 500; }
+        footer .divider { width: 1px; height: 14px; background: var(--border); margin: 0 10px; }
+
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+        @media (max-width: 800px) {
+            html { font-size: 14px; }
+            main { grid-template-columns: 1fr; }
+            header { flex-direction: column; align-items: flex-start; }
+            header .meta { width: 100%; justify-content: space-between; }
+            footer { flex-direction: column; align-items: flex-start; gap: 4px; }
+            footer .divider { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="brand">
+            <div class="logo"></div>
+            <h1>DEXLYN ARBITRAGE BOT <span style="color:var(--muted);font-weight:400;">v2.5.1</span></h1>
+        </div>
+        <div class="meta">
+            <div>
+                <span class="label">Saldo</span>
+                <span class="value" id="balance" style="color:var(--gold);">-- SUPRA</span>
+            </div>
+            <div id="rpc-status" class="status ok"><span class="status-dot"></span> RPC</div>
+            <div id="auto-badge" class="badge-auto on">🤖 AUTO</div>
+            <div id="clock" style="font-size:0.85rem;color:var(--muted);"></div>
+        </div>
+    </header>
+    <main>
+        <div class="panel">
+            <div class="panel-header">
+                <h2>📊 Mercado</h2>
+                <span class="count" id="pairs-count">0 pares</span>
+            </div>
+            <div class="scroll-area">
+                <table>
+                    <thead><tr><th>DEX</th><th>Par</th><th>Preço</th><th>Δ 24h</th><th>Spark</th></tr></thead>
+                    <tbody id="prices-body"></tbody>
+                </table>
+            </div>
+        </div>
+        <div class="panel">
+            <div class="panel-header">
+                <h2>🎯 Oportunidades</h2>
+                <span class="count" id="opps-count">0</span>
+            </div>
+            <div class="scroll-area opp-list" id="opp-list"></div>
+        </div>
+        <div class="panel">
+            <div class="panel-header">
+                <h2>📋 Últimas Trades</h2>
+            </div>
+            <div class="scroll-area log-list" id="log-list"></div>
+        </div>
+    </main>
+    <footer>
+        <span>Melhor: <span class="highlight" id="footer-best">—</span></span>
+        <span class="divider"></span>
+        <span>Oportunidades: <span class="highlight" id="footer-opps">0</span></span>
+        <span class="divider"></span>
+        <span>Tick: <span class="highlight" id="footer-tick">— ms</span></span>
+        <span class="divider"></span>
+        <span id="footer-clock"></span>
+    </footer>
+    <script>
+        const ws = new WebSocket(`ws://${location.host}`);
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            updateDashboard(data);
+        };
+        ws.onclose = () => { setTimeout(() => { location.reload(); }, 3000); };
+
+        function updateDashboard(data) {
+            const now = new Date().toLocaleTimeString('pt-PT');
+            document.getElementById('clock').textContent = now;
+            document.getElementById('footer-clock').textContent = now;
+
+            if (data.balances) {
+                const supra = data.balances.SUPRA || 0;
+                document.getElementById('balance').textContent =
+                    supra >= 1000 ? `${(supra / 1000).toFixed(1)}K SUPRA` : `${supra.toFixed(2)} SUPRA`;
+            }
+
+            const rpcEl = document.getElementById('rpc-status');
+            if (data.rpcHealthy) {
+                rpcEl.className = 'status ok';
+                rpcEl.innerHTML = '<span class="status-dot"></span> RPC';
+            } else {
+                rpcEl.className = 'status fail';
+                rpcEl.innerHTML = '<span class="status-dot"></span> RPC';
+            }
+
+            const autoEl = document.getElementById('auto-badge');
+            if (data.autoMode) {
+                autoEl.className = 'badge-auto on';
+                autoEl.textContent = '🤖 AUTO';
+            } else {
+                autoEl.className = 'badge-auto off';
+                autoEl.textContent = '⏸ MANUAL';
+            }
+
+            // Tabela de pares
+            if (data.pairs && data.pairs.length > 0) {
+                const tbody = document.getElementById('prices-body');
+                document.getElementById('pairs-count').textContent = `${data.pairs.length} pares`;
+                tbody.innerHTML = data.pairs.slice(0, 40).map(p => {
+                    const price = p.priceAinB?.toFixed(6) || '0.000000';
+                    const change = p.change || 0;
+                    const sign = change >= 0 ? '+' : '';
+                    const color = change >= 0.01 ? 'var(--green)' : (change <= -0.01 ? 'var(--red)' : 'var(--muted)');
+                    const spark = p.spark || '';
+                    const dex = p.dex || 'DLyn';
+                    let dexClass = 'dex-dlyn';
+                    if (dex === 'DLV3') dexClass = 'dex-dlv3';
+                    if (dex === 'Spky') dexClass = 'dex-spky';
+                    return `<tr>
+                        <td><span class="dex-tag ${dexClass}">${dex}</span></td>
+                        <td><b>${p.tokenA}</b>/<span style="color:var(--muted)">${p.tokenB}</span></td>
+                        <td style="font-family:var(--mono);">${price}</td>
+                        <td style="color:${color};font-weight:500;">${sign}${change.toFixed(3)}%</td>
+                        <td style="letter-spacing:1px;font-size:0.75rem;">${spark}</td>
+                    </tr>`;
+                }).join('');
+            }
+
+            // Oportunidades
+            if (data.opps) {
+                const oppList = document.getElementById('opp-list');
+                document.getElementById('opps-count').textContent = data.opps.length;
+                if (!data.opps.length) {
+                    oppList.innerHTML = '<div style="color:var(--muted);padding:20px;text-align:center;">Nenhuma oportunidade detectada</div>';
+                } else {
+                    oppList.innerHTML = data.opps.slice(0, 8).map(o => {
+                        const badgeCls = o.score >= 70 ? 'opp-hot' : (o.score >= 40 ? 'opp-warm' : 'opp-cold');
+                        const badgeText = o.score >= 70 ? '🔥 EXEC' : (o.score >= 40 ? '◈ AVAL' : '○ FRACO');
+                        const profitColor = o.score >= 70 ? 'var(--green)' : (o.score >= 40 ? 'var(--gold)' : 'var(--muted)');
+                        const barCls = o.score >= 70 ? 'score-hot' : (o.score >= 40 ? 'score-warm' : 'score-cold');
+                        return `<div class="opp-item">
+                            <div class="opp-header">
+                                <span class="opp-badge ${badgeCls}">${badgeText}</span>
+                                <span class="opp-profit" style="color:${profitColor}">+${o.profitPct.toFixed(3)}% +${o.profitAbs.toFixed(4)} ${o.symIn}</span>
+                            </div>
+                            <div class="score-bar"><div class="score-fill ${barCls}" style="width:${o.score}%"></div></div>
+                            <div class="opp-route">${o.path}</div>
+                        </div>`;
+                    }).join('');
+                }
+            }
+
+            // Log
+            if (data.log) {
+                const logList = document.getElementById('log-list');
+                logList.innerHTML = data.log.slice(0, 8).map(e => {
+                    const color = e.score >= 70 ? 'var(--green)' : (e.score >= 40 ? 'var(--gold)' : 'var(--muted)');
+                    return `<div class="log-entry">
+                        <span class="log-time">${e.time}</span>
+                        <span class="log-pct" style="color:${color}">+${e.profitPct.toFixed(3)}%</span>
+                        <span class="log-profit">+${e.profitAbs.toFixed(4)} SUPRA</span>
+                        <span class="log-path">${e.path}</span>
+                    </div>`;
+                }).join('');
+            }
+
+            document.getElementById('footer-best').textContent = data.bestStr || '—';
+            document.getElementById('footer-opps').textContent = data.oppsCount || 0;
+            document.getElementById('footer-tick').textContent = `${data.tickMs || '—'} ms`;
+        }
+    </script>
+</body>
+</html>

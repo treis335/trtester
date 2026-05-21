@@ -1,14 +1,11 @@
-// index.js — CORRIGIDO
-// CORREÇÃO: getSupraClient() estava comentado → SDK nunca inicializava
-// → walletBalance falhava silenciosamente
-// SOLUÇÃO: inicializa com timeout; se falhar, continua sem SDK (graceful degradation)
-
+// index.js — CORRIGIDO + DASHBOARD
 require('dotenv').config();
 const { initScreen }     = require('./tui/monitor');
 const { tick }           = require('./loop/tick');
 const { CONFIG }         = require('./config/config');
 const { logError }       = require('./utils/logError');
 const { getSupraClient } = require('./utils/supraClient');
+const { startServer }    = require('./server');   // ← NOVO
 
 (async () => {
   process.on('uncaughtException',  (err)    => logError('uncaughtException', err));
@@ -26,6 +23,9 @@ const { getSupraClient } = require('./utils/supraClient');
     logError('SupraClient init', e);
     console.warn('⚠️  Cliente Supra indisponível — walletBalance usará REST como fallback.');
   }
+
+  // Iniciar servidor do dashboard
+  startServer();
 
   const boxes = initScreen();
 

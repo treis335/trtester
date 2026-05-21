@@ -12,6 +12,7 @@ const renderArb = require('../tui/renderArb');
 const renderLog = require('../tui/renderlog');
 const { renderFooter, setRpcHealthy } = require('../tui/renderFooter');
 const { fetchWalletBalance } = require('../utils/walletBalance');
+const { broadcast } = require('../server');   // ← NOVO
 
 let bestOpportunity = null;
 let currentOpps = [];
@@ -55,7 +56,6 @@ async function maybeAutoExecute(opps, balances, boxes) {
     log(`{yellow-fg}🤖 Auto-execução: ${bestOpp.cycle.path.map(t => CONFIG.tokens[t]?.symbol || t).join(' → ')} (+${bestOpp.result.profitPct.toFixed(3)}%){/}`);
 
     try {
-        // Seleciona o executor conforme a composição da rota
         const dexesInRoute = new Set(bestOpp.cycle.edges.map(e => e.pair.dex));
         let res;
         if (dexesInRoute.size === 1 && dexesInRoute.has('SPIKEY')) {
@@ -194,6 +194,38 @@ async function tick(boxes) {
     try { renderFooter(opps, Date.now() - t0, boxes); } catch (e) { logError('renderFooter', e); }
 
     try { boxes.screen.render(); } catch {}
+
+    // ═══ Broadcast para o Dashboard ═══
+    const dashboardData = {
+        balances: walletBalances,
+        rpcHealthy: pairStates.length > 0,
+        autoMode: CONFIG.autoExecute.enabled,
+        pairs: pairStates.map(ps => ({
+            dex: ps.dex === 'SPIKEY' ? 'Spky' : (ps.dex === 'DEXLYN_V3' ? 'DLV3' : 'DLyn'),
+            tokenA: ps.tokenA,
+            tokenB: ps.tokenB,
+            priceAinB: ps.priceAinB,
+            change: 0,
+            spark: '',
+        })),
+        opps: opps.map(o => ({
+            score: o.score,
+            profitPct: o.profitPct,
+            profit: o.profit,
+            symIn: CONFIG.tokens[o.cycle.path[0]]?.symbol || 'SUPRA',
+            path: o.cycle.path.map(t => CONFIG.tokens[t]?.symbol || t).join(' → '),
+        })),
+        log: require('../detector/arbDetector').arbLog.slice(0, 8).map(e => ({
+            time: e.time,
+            profitPct: e.profitPct,
+            score: e.score,
+            path: e.path,
+        })),
+        oppsCount: opps.length,
+        bestStr: opps[0] ? `▲ +${opps[0].profitPct.toFixed(3)}%` : 'sem arb',
+        tickMs: Date.now() - t0,
+    };
+    broadcast(dashboardData);
 }
 
 function getBestOpportunity() { return bestOpportunity; }
