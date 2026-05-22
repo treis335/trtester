@@ -70,7 +70,6 @@ async function maybeAutoExecute(opps, balances, boxes) {
             const { executeArbitrage } = require('../dexes/dexlyn/dexlynExecute');
             res = await executeArbitrage(bestOpp, () => {});
         } else {
-            // Cross‑DEX (inclui Atmos + qualquer outro)
             const { executeCrossArbitrage } = require('../executor/executeCrossArb');
             res = await executeCrossArbitrage(bestOpp, () => {});
         }
@@ -154,18 +153,31 @@ async function tick(boxes) {
     }
 
     // ═══ 4. Atmos ═══
+    let atmosPools = [];
     if (ATMOS_CONFIG && ATMOS_CONFIG.pools && ATMOS_CONFIG.pools.length > 0) {
-        for (const pool of ATMOS_CONFIG.pools) {
-            tasks.push(limit(() =>
-                taskWithTimeout(
-                    atmosEngine.fetchPairState(pool.address),
-                    20000
-                ).catch(e => {
-                    logError(`fetchAtmosPair ${pool.address}`, e);
-                    return null;
-                })
-            ));
-        }
+        atmosPools = ATMOS_CONFIG.pools;
+    } else {
+        // Pool de teste (apenas para verificar se a Atmos aparece no mercado)
+        console.log('⚠️ Nenhuma pool da Atmos encontrada. Usando pool de teste SUPRA/dexUSDC.');
+        atmosPools = [
+            {
+                address: '0xa4a4a31116e114bf3c4f4728914e6b43db73279a4421b0768993e07248fe2234', // endereço do módulo (placeholder)
+                tokenA: 'SUPRA',
+                tokenB: 'dexUSDC'
+            }
+        ];
+    }
+
+    for (const pool of atmosPools) {
+        tasks.push(limit(() =>
+            taskWithTimeout(
+                atmosEngine.fetchPairState(pool.address),
+                20000
+            ).catch(e => {
+                logError(`fetchAtmosPair ${pool.address}`, e);
+                return null;
+            })
+        ));
     }
 
     let pairStates, graph, cycles, opps;
@@ -216,7 +228,7 @@ async function tick(boxes) {
 
     try { boxes.screen.render(); } catch {}
 
-    // ═══ Broadcast para o Dashboard ═══
+    // Broadcast para o Dashboard
     const dashboardData = {
         balances: walletBalances,
         rpcHealthy: pairStates.length > 0,
