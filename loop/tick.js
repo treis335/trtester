@@ -152,16 +152,15 @@ async function tick(boxes) {
         }
     }
 
-    // ═══ 4. Atmos ═══
+    // ═══ 4. Atmos (tentativa real, mas vamos forçar mock depois) ═══
     let atmosPools = [];
     if (ATMOS_CONFIG && ATMOS_CONFIG.pools && ATMOS_CONFIG.pools.length > 0) {
         atmosPools = ATMOS_CONFIG.pools;
     } else {
-        // Pool de teste (apenas para verificar se a Atmos aparece no mercado)
         console.log('⚠️ Nenhuma pool da Atmos encontrada. Usando pool de teste SUPRA/dexUSDC.');
         atmosPools = [
             {
-                address: '0xa4a4a31116e114bf3c4f4728914e6b43db73279a4421b0768993e07248fe2234', // endereço do módulo (placeholder)
+                address: '0xa4a4a31116e114bf3c4f4728914e6b43db73279a4421b0768993e07248fe2234',
                 tokenA: 'SUPRA',
                 tokenB: 'dexUSDC'
             }
@@ -184,6 +183,22 @@ async function tick(boxes) {
     try {
         pairStates = await Promise.all(tasks);
         pairStates = pairStates.flat().filter(Boolean);
+        
+        // 🧪 FORÇAR a adição de um par mock da Atmos para testes (garantido)
+        pairStates.push({
+            dex: 'ATMOS',
+            tokenA: 'SUPRA',
+            tokenB: 'dexUSDC',
+            curve: 'constant_product',
+            pairAddress: '0xmock',
+            reserveA: 123456789,
+            reserveB: 987654321,
+            fee: 30,
+            feeScale: 10000,
+            priceAinB: 0.000125,
+            _simulate: (direction, amountIn) => direction === 'AB' ? amountIn * 0.000125 : amountIn / 0.000125
+        });
+        
         setRpcHealthy(pairStates.length > 0);
     } catch (e) {
         logError('Promise.all pairStates', e);

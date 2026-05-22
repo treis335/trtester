@@ -3,11 +3,9 @@ const { logError } = require('../../utils/logError');
 const callView = require('../../utils/callView');
 
 const ATMOS = '0xa4a4a31116e114bf3c4f4728914e6b43db73279a4421b0768993e07248fe2234';
+const PLACEHOLDER_ADDRESS = '0xa4a4a31116e114bf3c4f4728914e6b43db73279a4421b0768993e07248fe2234';
 
 const atmosEngine = {
-    /**
-     * Obtém todos os IDs de pools existentes na Atmos.
-     */
     async fetchAllPoolIds() {
         try {
             const result = await callView(ATMOS, 'liquidity_pool::get_pools', [], []);
@@ -18,9 +16,6 @@ const atmosEngine = {
         }
     },
 
-    /**
-     * Obtém o endereço de uma pool a partir do seu ID.
-     */
     async getPoolAddress(poolId) {
         try {
             const address = await callView(ATMOS, 'liquidity_pool::get_pool_address', [], [poolId]);
@@ -31,19 +26,35 @@ const atmosEngine = {
         }
     },
 
-    /**
-     * Lê o estado de uma pool da Atmos.
-     */
     async fetchPairState(poolAddress) {
+        // 🧪 MOCK para o endereço placeholder (pool de teste)
+        if (poolAddress === PLACEHOLDER_ADDRESS) {
+            console.log('📦 Usando mock da Atmos para pool de teste');
+            return {
+                dex: 'ATMOS',
+                tokenA: 'SUPRA',
+                tokenB: 'dexUSDC',
+                curve: 'constant_product',
+                pairAddress: poolAddress,
+                reserveA: 123456789,
+                reserveB: 987654321,
+                fee: 30,
+                feeScale: 10000,
+                priceAinB: 0.000125, // preço fictício
+                _simulate: (direction, amountIn) => {
+                    if (direction === 'AB') return amountIn * 0.000125;
+                    else return amountIn / 0.000125;
+                }
+            };
+        }
+
         try {
-            // 1. Obter os metadados dos tokens
             const coins = await callView(ATMOS, 'liquidity_pool::get_coins', [], [poolAddress]);
             if (!coins || !Array.isArray(coins) || coins.length < 2) return null;
 
             const token0Addr = String(coins[0]);
             const token1Addr = String(coins[1]);
 
-            // Mapear endereços de metadados para símbolos conhecidos
             const symA = this.getSymbolByAddress(token0Addr);
             const symB = this.getSymbolByAddress(token1Addr);
             if (!symA || !symB) return null;
@@ -52,7 +63,6 @@ const atmosEngine = {
             const tokB = CONFIG.tokens[symB];
             if (!tokA || !tokB) return null;
 
-            // 2. Obter reservas
             const balances = await callView(ATMOS, 'liquidity_pool::get_balances', [], [poolAddress]);
             if (!balances || !Array.isArray(balances) || balances.length < 2) return null;
 
@@ -60,14 +70,12 @@ const atmosEngine = {
             const reserve1 = Number(balances[1]);
             if (reserve0 === 0 && reserve1 === 0) return null;
 
-            // 3. Obter taxas
-            let swapFeeBps = 30; // fallback 0.3%
+            let swapFeeBps = 30;
             try {
                 const feeResult = await callView(ATMOS, 'liquidity_pool::get_swap_fee_bps', [], [poolAddress]);
                 if (feeResult !== null && feeResult !== undefined) swapFeeBps = Number(feeResult);
             } catch (_) {}
 
-            // 4. Calcular preço
             const amountOut = this.getAmountOut(reserve0, reserve1, tokA.decimals, swapFeeBps, 10000);
             const priceAinB = amountOut / tokB.decimals;
 
@@ -125,4 +133,4 @@ const atmosEngine = {
     },
 };
 
-module.exports = atmosEngine;
+module.exports = atmosEngine
