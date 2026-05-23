@@ -2,20 +2,19 @@
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
-const { execSync, spawn } = require('child_process');
+const { spawn } = require('child_process');
 const { extractJson } = require('./utils/deepseek');
 const { startBot, stopBot, isBotRunning } = require('./utils/botControl');
 const config = require('./config');
 const memory = require('./memory');
 const { callDeepSeek } = require('./utils/deepseek');
 
-const CYCLE_INTERVAL_MS = config.cycleIntervalMs;
-const GUARDIAN_INTERVAL_MS = 30 * 1000; // 30 segundos
-const OPTIMIZER_INTERVAL_MS = 5 * 60 * 1000; // 5 minutos
-const EXPANSOR_INTERVAL_MS = 30 * 60 * 1000; // 30 minutos
+const GUARDIAN_INTERVAL_MS = 30 * 1000;
+const OPTIMIZER_INTERVAL_MS = 5 * 60 * 1000;
+const EXPANSOR_INTERVAL_MS = 30 * 60 * 1000;
 
 const CONFIG_PATH = path.join(__dirname, '..', 'config', 'config.js');
-const CONFIG_DEFAULT = require('./config_default.js');
+const CONFIG_DEFAULT_PATH = path.join(__dirname, 'config_default.js');
 
 // ─── Segurança do Config ──────────────────────────────────
 function isConfigRequireable() {
@@ -25,10 +24,29 @@ function isConfigRequireable() {
   } catch (e) { return false; }
 }
 
-function restoreConfig() {
-  const defaultContent = `// config/config.js — restaurado automaticamente\nconst CONFIG = ${JSON.stringify(CONFIG_DEFAULT, null, 2)};\n\nmodule.exports = { CONFIG };`;
+function getDefaultConfig() {
+  if (!fs.existsSync(CONFIG_DEFAULT_PATH)) {
+    console.log('⚠️ config_default.js não encontrado. A equipa irá gerar um novo.');
+    return null;
+  }
+  return require(CONFIG_DEFAULT_PATH);
+}
+
+async function restoreConfig() {
+  let defaultCfg = getDefaultConfig();
+  if (!defaultCfg) {
+    const prompt = `Gera um config.js funcional para bot de arbitragem Supra. Inclui rpc, dexes (Dexlyn), tokens (SUPRA, DEXUSDC, etc). Responde JSON: {"files": {"config/config.js": "conteúdo completo"}}`;
+    const response = await callDeepSeek('És um developer Move.', prompt);
+    const json = extractJson(response);
+    if (json?.files && json.files['config/config.js']) {
+      fs.writeFileSync(CONFIG_PATH, json.files['config/config.js'], 'utf8');
+      console.log('🔄 Config gerado pela IA.');
+      return;
+    }
+  }
+  const defaultContent = `// config/config.js — restaurado automaticamente\nconst CONFIG = ${JSON.stringify(defaultCfg, null, 2)};\n\nmodule.exports = { CONFIG };`;
   fs.writeFileSync(CONFIG_PATH, defaultContent, 'utf8');
-  console.log('🔄 Config restaurado.');
+  console.log('🔄 Config restaurado a partir da cópia de segurança.');
 }
 
 function backupFiles(fileList) {
@@ -52,39 +70,47 @@ function restoreBackup(ts) {
   }
 }
 
-function addNarrative(entry) {
-  const log = memory.get('narrativeLog') || [];
-  log.push({ timestamp: new Date().toISOString(), ...entry });
-  memory.set('narrativeLog', log.slice(-50));
-  fs.appendFileSync('narratives.jsonl', JSON.stringify({ timestamp: new Date().toISOString(), ...entry }) + '\n');
-}
-
-// ─── Servidores auxiliares ────────────────────────────────
+// ─── Dashboard (inicia apenas se http-server estiver instalado) ────
 let dashboardServer = null;
 function startDashboard() {
-  const dashboardPath = path.join(__dirname, '..', config.paths.dashboardDir, 'index.html');
-  if (fs.existsSync(dashboardPath)) {
-    dashboardServer = spawn('npx', ['http-server', config.paths.dashboardDir, '-p', '3000', '--cors'], { cwd: path.join(__dirname, '..'), stdio: 'ignore' });
+  try {
+    const dashboardDir = path.join(__dirname, '..', config.paths.dashboardDir);
+    if (!fs.existsSync(dashboardDir)) fs.mkdirSync(dashboardDir, { recursive: true });
+    const indexPath = path.join(dashboardDir, 'index.html');
+    if (!fs.existsSync(indexPath)) {
+      fs.writeFileSync(indexPath, '<html><body><h1>Dashboard em construção</h1></body></html>');
+    }
+    // Tenta http-server global; se falhar, ignora silenciosamente
+    dashboardServer = spawn('http-server', [dashboardDir, '-p', '3000', '--cors'], { cwd: path.join(__dirname, '..'), stdio: 'ignore' });
+    dashboardServer.on('error', () => {
+      console.log('ℹ️ Dashboard não disponível (http-server não instalado). A equipa trabalha na mesma.');
+      dashboardServer = null;
+    });
+  } catch (err) {
+    console.log('ℹ️ Dashboard não disponível.');
   }
 }
 function stopDashboard() { if (dashboardServer) { dashboardServer.kill(); dashboardServer = null; } }
 
+// ─── Telegram ─────────────────────────────────────────────
 let telegramProcess = null;
 function startTelegramBot() {
-  const botPath = path.join(__dirname, '..', config.paths.telegramDir, 'bot.js');
-  if (fs.existsSync(botPath) && config.telegramBotToken) {
-    telegramProcess = spawn('node', [botPath], { cwd: path.join(__dirname, '..'), stdio: 'ignore', env: { ...process.env } });
+  try {
+    const botPath = path.join(__dirname, '..', config.paths.telegramDir, 'bot.js');
+    if (fs.existsSync(botPath) && config.telegramBotToken) {
+      telegramProcess = spawn('node', [botPath], { cwd: path.join(__dirname, '..'), stdio: 'ignore', env: { ...process.env } });
+    }
+  } catch (err) {
+    console.log('ℹ️ Bot Telegram não iniciado.');
   }
 }
 function stopTelegramBot() { if (telegramProcess) { telegramProcess.kill(); telegramProcess = null; } }
 
-// ─── Agentes especializados ──────────────────────────────
-
-// 1. GUARDIÃO – mantém o bot vivo
+// ─── Guardião ──────────────────────────────────────────────
 async function guardian() {
   if (!isConfigRequireable()) {
     console.log('🛡️ Guardião: config partido, a restaurar...');
-    restoreConfig();
+    await restoreConfig();
     stopBot();
     await new Promise(r => setTimeout(r, 2000));
   }
@@ -117,7 +143,7 @@ async function guardian() {
   }
 }
 
-// 2. ANALISTA DE LUCRO – verifica se houve trades lucrativas
+// ─── Analista de Lucro ─────────────────────────────────────
 async function profitAnalyst() {
   const metrics = fs.existsSync(config.paths.metrics)
     ? fs.readFileSync(config.paths.metrics, 'utf8')
@@ -128,18 +154,10 @@ async function profitAnalyst() {
   if (!hasProfit) {
     console.log('💰 Analista de Lucro: sem trades recentes. A forçar optimização...');
     const prompt = `
-O bot de arbitragem não fez trades nas últimas horas.
-Métricas: ${metrics.slice(-2000)}
+O bot não fez trades. Optimiza o config para começar a lucrar.
 Config actual: ${fs.readFileSync(CONFIG_PATH, 'utf8').slice(0, 3000)}
-
-Responde com JSON:
-{
-  "files": {
-    "config/config.js": "conteúdo completo com minProfitPct reduzido para 0.05 e slippage ajustado para capturar mais oportunidades"
-  },
-  "commitMessage": "optimização de lucro"
-}`;
-    const response = await callDeepSeek('És um analista de lucro. Optimiza o bot para começar a lucrar.', prompt);
+Responde JSON: {"files": {"config/config.js": "conteúdo completo com minProfitPct=0.05 e minScore=15"}}`;
+    const response = await callDeepSeek('És um analista de lucro. Optimiza o bot.', prompt);
     const json = extractJson(response);
     if (json?.files) {
       backupFiles(json.files);
@@ -158,10 +176,12 @@ Responde com JSON:
   }
 }
 
-// 3. EXPANSOR – adiciona novas DEXs e pares
+// ─── Expansor ─────────────────────────────────────────────
 async function expansor() {
-  console.log('🌐 Expansor: a procurar novas DEXs e pares...');
-  const availableDEXs = fs.readdirSync(path.join(__dirname, '..', config.paths.dexesDir), { withFileTypes: true })
+  console.log('🌐 Expansor: a procurar novas DEXs...');
+  const dexesPath = path.join(__dirname, '..', config.paths.dexesDir);
+  if (!fs.existsSync(dexesPath)) return;
+  const availableDEXs = fs.readdirSync(dexesPath, { withFileTypes: true })
     .filter(d => d.isDirectory())
     .map(d => d.name.toUpperCase());
 
@@ -173,10 +193,9 @@ async function expansor() {
   if (missingDEXs.length > 0) {
     console.log(`🌐 Expansor: DEXs não integradas: ${missingDEXs.join(', ')}. A integrar...`);
     const prompt = `
-Integra as DEXs ${missingDEXs.join(', ')} no config do bot.
+Integra as DEXs ${missingDEXs.join(', ')} no config.
 Config actual: ${configContent.slice(0, 3000)}
-
-Responde com JSON: {"files": {"config/config.js": "conteúdo completo com novas DEXs"}}`;
+Responde JSON: {"files": {"config/config.js": "conteúdo completo com novas DEXs"}}`;
     const response = await callDeepSeek('És um integrador de DEXs.', prompt);
     const json = extractJson(response);
     if (json?.files) {
@@ -203,15 +222,12 @@ async function main() {
   startDashboard();
   startTelegramBot();
 
-  // Garantir que o bot está funcional
   await guardian();
 
-  // Ciclos independentes
   setInterval(guardian, GUARDIAN_INTERVAL_MS);
   setInterval(profitAnalyst, OPTIMIZER_INTERVAL_MS);
   setInterval(expansor, EXPANSOR_INTERVAL_MS);
 
-  // Manter o processo vivo
   while (true) {
     await new Promise(r => setTimeout(r, 60000));
     console.log('⏱️ Equipa ativa...');

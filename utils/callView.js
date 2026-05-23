@@ -3,14 +3,12 @@
 const Cache = require('./cache');
 const axios = require('axios');
 
-// ⚠️ NUNCA depender do CONFIG. Valores padrão absolutos.
 let CONFIG = {};
 try {
-  // Tenta carregar, mas se falhar usa objecto vazio
   const configModule = require('../config/config');
   CONFIG = configModule.CONFIG || {};
 } catch (e) {
-  console.warn('⚠️ callView: não foi possível carregar config. A usar valores padrão.');
+  console.warn('⚠️ callView: config não carregado. A usar valores padrão.');
 }
 
 const CACHE_TTL = CONFIG.RESERVES_CACHE_TTL || 2000;

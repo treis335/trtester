@@ -4,7 +4,7 @@ module.exports = {
   pollingMs: 3500,
   emaAlpha: 0.35,
   tickHistory: 12,
-  minProfitPct: 0.09,
+  minProfitPct: 0.05,            // agressivo para começar a lucrar
   optimalSearch: { min: 10, max: 10000, iterations: 20 },
   scoreWeights: { profit: 0.60, liquidity: 0.25, trend: 0.15 },
   arbLogMax: 8,
@@ -20,8 +20,8 @@ module.exports = {
 
   autoExecute: {
     enabled: true,
-    minProfitPct: 0.10,
-    minScore: 20,
+    minProfitPct: 0.05,          // mais agressivo
+    minScore: 15,                // mais baixo para não perder oportunidades
     gasReserveSUPRA: 0.09,
     cooldownMs: 5000,
     maxConsecutiveFails: 3,
