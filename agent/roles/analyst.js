@@ -4,7 +4,7 @@ const { callDeepSeek } = require('../utils/deepseek');
 const config = require('../config');
 
 async function analyse() {
-  console.log('🧠 Analista de Mercado a trabalhar...');
+  console.log('🧠 Analista a examinar dados...');
   const metrics = fs.existsSync(config.paths.metrics)
     ? fs.readFileSync(config.paths.metrics, 'utf8').slice(-5000)
     : 'sem métricas';

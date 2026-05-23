@@ -18,7 +18,7 @@ Ações sugeridas pelo Diagnosticador: ${emergency.actions.join(', ')}
   }
 
   const prompt = `
-És o Planeador. ${emergency ? 'Estamos em modo de emergência. A prioridade máxima é corrigir o problema crítico.' : 'Define o plano de expansão e melhoria.'}
+És o Planeador. ${emergency ? 'Modo de emergência: corrige o problema crítico.' : 'Define o plano de expansão e melhoria.'}
 
 ANÁLISE: ${JSON.stringify(analysisJson)}
 HISTÓRICO: ${JSON.stringify(history.slice(-5))}

@@ -7,20 +7,28 @@ const { extractJson } = require('./utils/deepseek');
 const { startBot, stopBot, isBotRunning } = require('./utils/botControl');
 const config = require('./config');
 const memory = require('./memory');
-const planner = require('./roles/planner');
-const analyst = require('./roles/analyst');
-const diagnosticator = require('./roles/diagnosticator');
-const investigator = require('./roles/investigator');
-const developer = require('./roles/developer');
-const qa = require('./roles/qa');
-const narrator = require('./roles/narrator');
-const devops = require('./roles/devops');
+const { callDeepSeek } = require('./utils/deepseek');
 
 const CYCLE_INTERVAL_MS = config.cycleIntervalMs;
+const GUARDIAN_INTERVAL_MS = 30 * 1000; // 30 segundos
+const OPTIMIZER_INTERVAL_MS = 5 * 60 * 1000; // 5 minutos
+const EXPANSOR_INTERVAL_MS = 30 * 60 * 1000; // 30 minutos
 
-// ─── Segurança ────────────────────────────────────────────
-function configIsSafe(content) {
-  return content.includes('tokens:') && content.includes('SUPRA:') && content.includes('DEXUSDC:') && (content.match(/const CONFIG\s*=\s*\{/g) || []).length === 1;
+const CONFIG_PATH = path.join(__dirname, '..', 'config', 'config.js');
+const CONFIG_DEFAULT = require('./config_default.js');
+
+// ─── Segurança do Config ──────────────────────────────────
+function isConfigRequireable() {
+  try {
+    const mod = require(CONFIG_PATH);
+    return mod && typeof mod.CONFIG === 'object' && mod.CONFIG.rpc;
+  } catch (e) { return false; }
+}
+
+function restoreConfig() {
+  const defaultContent = `// config/config.js — restaurado automaticamente\nconst CONFIG = ${JSON.stringify(CONFIG_DEFAULT, null, 2)};\n\nmodule.exports = { CONFIG };`;
+  fs.writeFileSync(CONFIG_PATH, defaultContent, 'utf8');
+  console.log('🔄 Config restaurado.');
 }
 
 function backupFiles(fileList) {
@@ -44,8 +52,11 @@ function restoreBackup(ts) {
   }
 }
 
-function pullLatest() {
-  try { execSync('git pull origin main', { stdio: 'ignore' }); } catch {}
+function addNarrative(entry) {
+  const log = memory.get('narrativeLog') || [];
+  log.push({ timestamp: new Date().toISOString(), ...entry });
+  memory.set('narrativeLog', log.slice(-50));
+  fs.appendFileSync('narratives.jsonl', JSON.stringify({ timestamp: new Date().toISOString(), ...entry }) + '\n');
 }
 
 // ─── Servidores auxiliares ────────────────────────────────
@@ -67,192 +78,143 @@ function startTelegramBot() {
 }
 function stopTelegramBot() { if (telegramProcess) { telegramProcess.kill(); telegramProcess = null; } }
 
-// ─── Narrativas ──────────────────────────────────────────
-function addNarrative(entry) {
-  const log = memory.get('narrativeLog') || [];
-  log.push({ timestamp: new Date().toISOString(), ...entry });
-  memory.set('narrativeLog', log.slice(-50));
-  fs.appendFileSync('narratives.jsonl', JSON.stringify({ timestamp: new Date().toISOString(), ...entry }) + '\n');
+// ─── Agentes especializados ──────────────────────────────
+
+// 1. GUARDIÃO – mantém o bot vivo
+async function guardian() {
+  if (!isConfigRequireable()) {
+    console.log('🛡️ Guardião: config partido, a restaurar...');
+    restoreConfig();
+    stopBot();
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  if (!isBotRunning()) {
+    console.log('🛡️ Guardião: bot parado, a iniciar...');
+    startBot();
+    await new Promise(r => setTimeout(r, 8000));
+    if (!isBotRunning()) {
+      console.log('🛡️ Guardião: falha ao iniciar. A investigar...');
+      const errors = fs.existsSync(config.paths.errorLog)
+        ? fs.readFileSync(config.paths.errorLog, 'utf8').slice(-2000)
+        : '';
+      const prompt = `O bot não arranca. Últimos erros:\n${errors}\n\nGera uma correção JSON: {"files": {"config/config.js": "conteúdo completo"}}`;
+      const response = await callDeepSeek('És um engenheiro DevOps. Corrige o bot.', prompt);
+      const json = extractJson(response);
+      if (json?.files) {
+        backupFiles(json.files);
+        const ts = Date.now();
+        for (const [f, c] of Object.entries(json.files)) {
+          fs.writeFileSync(path.join(__dirname, '..', f), c);
+        }
+        startBot();
+        await new Promise(r => setTimeout(r, 8000));
+        if (!isBotRunning()) {
+          restoreBackup(ts);
+          startBot();
+        }
+      }
+    }
+  }
 }
 
-// ─── DEXs disponíveis ────────────────────────────────────
-function getAvailableDEXs() {
-  const dexesPath = path.join(__dirname, '..', config.paths.dexesDir);
-  if (!fs.existsSync(dexesPath)) return [];
-  return fs.readdirSync(dexesPath, { withFileTypes: true })
+// 2. ANALISTA DE LUCRO – verifica se houve trades lucrativas
+async function profitAnalyst() {
+  const metrics = fs.existsSync(config.paths.metrics)
+    ? fs.readFileSync(config.paths.metrics, 'utf8')
+    : '';
+  const lastTrades = metrics.split('\n').filter(l => l.includes('success')).slice(-10);
+  const hasProfit = lastTrades.length > 0;
+
+  if (!hasProfit) {
+    console.log('💰 Analista de Lucro: sem trades recentes. A forçar optimização...');
+    const prompt = `
+O bot de arbitragem não fez trades nas últimas horas.
+Métricas: ${metrics.slice(-2000)}
+Config actual: ${fs.readFileSync(CONFIG_PATH, 'utf8').slice(0, 3000)}
+
+Responde com JSON:
+{
+  "files": {
+    "config/config.js": "conteúdo completo com minProfitPct reduzido para 0.05 e slippage ajustado para capturar mais oportunidades"
+  },
+  "commitMessage": "optimização de lucro"
+}`;
+    const response = await callDeepSeek('És um analista de lucro. Optimiza o bot para começar a lucrar.', prompt);
+    const json = extractJson(response);
+    if (json?.files) {
+      backupFiles(json.files);
+      const ts = Date.now();
+      for (const [f, c] of Object.entries(json.files)) {
+        fs.writeFileSync(path.join(__dirname, '..', f), c);
+      }
+      stopBot();
+      await new Promise(r => setTimeout(r, 2000));
+      startBot();
+      await new Promise(r => setTimeout(r, 10000));
+      if (!isBotRunning()) { restoreBackup(ts); startBot(); }
+    }
+  } else {
+    console.log(`💰 Analista de Lucro: ${lastTrades.length} trades recentes.`);
+  }
+}
+
+// 3. EXPANSOR – adiciona novas DEXs e pares
+async function expansor() {
+  console.log('🌐 Expansor: a procurar novas DEXs e pares...');
+  const availableDEXs = fs.readdirSync(path.join(__dirname, '..', config.paths.dexesDir), { withFileTypes: true })
     .filter(d => d.isDirectory())
     .map(d => d.name.toUpperCase());
-}
 
-// ─── Ciclo de emergência (auto‑reparação) ────────────────
-async function emergencyCycle(diagnosis) {
-  console.log('🚨 Ciclo de emergência iniciado!');
-  addNarrative({ title: '🚨 Alerta', body: `Problema crítico: ${diagnosis.summary}. A equipa está a trabalhar na correção.`, emoji: '🚨' });
+  const configContent = fs.readFileSync(CONFIG_PATH, 'utf8');
+  const integratedDEXs = (configContent.match(/['"]?[A-Z]+['"]?\s*:\s*\{/g) || []).map(m => m.replace(/['":\s{]/g, ''));
 
-  const currentConfig = fs.existsSync(config.paths.config) ? fs.readFileSync(config.paths.config, 'utf8') : '';
+  const missingDEXs = availableDEXs.filter(d => !integratedDEXs.includes(d));
 
-  // Investigar causa raiz
-  let investigationJson;
-  try {
-    const invRaw = await investigator.investigate(diagnosis.summary, currentConfig);
-    investigationJson = extractJson(invRaw);
-  } catch (e) { console.error('❌ Investigador:', e.message); return false; }
-  if (!investigationJson?.fix) {
-    console.log('❌ Investigador não encontrou correção.');
-    return false;
-  }
+  if (missingDEXs.length > 0) {
+    console.log(`🌐 Expansor: DEXs não integradas: ${missingDEXs.join(', ')}. A integrar...`);
+    const prompt = `
+Integra as DEXs ${missingDEXs.join(', ')} no config do bot.
+Config actual: ${configContent.slice(0, 3000)}
 
-  // Aplicar correção diretamente (sem QA em emergência, mas com backup)
-  backupFiles(investigationJson.fix.files);
-  const ts = Date.now();
-  try {
-    devops.applyChanges(investigationJson.fix.files);
-    devops.gitCommit(investigationJson.fix.commitMessage || '🚑 hotfix');
-    stopBot(); await new Promise(r => setTimeout(r, 3000));
-    startBot(); await new Promise(r => setTimeout(r, 10000));
-    if (isBotRunning()) {
-      addNarrative({ title: '✅ Corrigido', body: `O problema foi resolvido: ${investigationJson.fix.commitMessage}`, emoji: '✅' });
-      return true;
-    } else {
-      restoreBackup(ts);
-      startBot();
-      addNarrative({ title: '❌ Falha na correção', body: 'A correção falhou e foi revertida.', emoji: '⚠️' });
-      return false;
-    }
-  } catch (e) {
-    restoreBackup(ts); startBot();
-    return false;
-  }
-}
-
-// ─── Ciclo normal (expansão) ─────────────────────────────
-async function normalCycle() {
-  console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🤖 Ciclo normal de expansão');
-  console.log('⏰', new Date().toISOString());
-  pullLatest();
-
-  if (!isBotRunning()) {
-    startBot();
-    await new Promise(r => setTimeout(r, 30000));
-  }
-
-  // Analista
-  let analysisJson;
-  try {
-    const raw = await analyst.analyse();
-    analysisJson = extractJson(raw);
-  } catch (e) { console.error('❌ Analista:', e.message); return; }
-  if (!analysisJson) return;
-  console.log('📋 Análise:', analysisJson.summary);
-  try {
-    const narRaw = await narrator.narrate({ type: 'analysis', data: analysisJson });
-    const narJson = extractJson(narRaw);
-    if (narJson) addNarrative(narJson);
-  } catch {}
-
-  // Planeador
-  const currentConfig = fs.existsSync(config.paths.config) ? fs.readFileSync(config.paths.config, 'utf8') : '';
-  let planJson;
-  try {
-    const raw = await planner.plan(analysisJson, currentConfig);
-    planJson = extractJson(raw);
-  } catch (e) { console.error('❌ Planeador:', e.message); return; }
-  if (!planJson) return;
-  console.log('🎯 Plano:', planJson.goals?.join(', '));
-  try {
-    const narRaw = await narrator.narrate({ type: 'plan', data: planJson });
-    const narJson = extractJson(narRaw);
-    if (narJson) addNarrative(narJson);
-  } catch {}
-
-  // Developer + QA
-  let generatedJson = null, reviewJson = null;
-  for (let i = 1; i <= 3; i++) {
-    try {
-      const devRaw = await developer.develop(
-        JSON.stringify({ analysis: analysisJson, plan: planJson, availableDEXs: getAvailableDEXs(), hasTelegram: !!config.telegramBotToken }),
-        reviewJson ? JSON.stringify(reviewJson.issues) : null
-      );
-      generatedJson = extractJson(devRaw);
-    } catch (e) { continue; }
-    if (!generatedJson?.files) continue;
-    if (generatedJson.files['config/config.js'] && !configIsSafe(generatedJson.files['config/config.js'])) {
-      reviewJson = { approved: false, issues: ['config inseguro'] }; continue;
-    }
-    try {
-      const qaRaw = await qa.review(generatedJson);
-      reviewJson = extractJson(qaRaw);
-    } catch (e) { continue; }
-    if (reviewJson?.approved) break;
-  }
-
-  if (reviewJson?.approved && generatedJson?.files) {
-    try {
-      const narRaw = await narrator.narrate({ type: 'approved', plan: planJson.goals, commitMessage: generatedJson.commitMessage });
-      const narJson = extractJson(narRaw);
-      if (narJson) addNarrative(narJson);
-    } catch {}
-    backupFiles(generatedJson.files);
-    const ts = Date.now();
-    try {
-      devops.applyChanges(generatedJson.files);
-      devops.gitCommit(generatedJson.commitMessage || '🤖 update');
-      stopDashboard(); stopTelegramBot(); stopBot();
-      await new Promise(r => setTimeout(r, 3000));
-      startBot(); startDashboard(); startTelegramBot();
-      await new Promise(r => setTimeout(r, 10000));
-      if (!isBotRunning()) {
-        restoreBackup(ts); startBot();
-        addNarrative({ title: '❌ Falha na atualização', body: 'O bot não arrancou com as alterações. Foi feita reversão automática.', emoji: '⚠️' });
-      } else {
-        const history = memory.get('history') || [];
-        history.push({ timestamp: new Date().toISOString(), summary: analysisJson.summary, goals: planJson.goals, commitMessage: generatedJson.commitMessage });
-        memory.set('history', history.slice(-30));
+Responde com JSON: {"files": {"config/config.js": "conteúdo completo com novas DEXs"}}`;
+    const response = await callDeepSeek('És um integrador de DEXs.', prompt);
+    const json = extractJson(response);
+    if (json?.files) {
+      backupFiles(json.files);
+      const ts = Date.now();
+      for (const [f, c] of Object.entries(json.files)) {
+        fs.writeFileSync(path.join(__dirname, '..', f), c);
       }
-    } catch (e) { restoreBackup(ts); startBot(); }
+      stopBot();
+      await new Promise(r => setTimeout(r, 2000));
+      startBot();
+      await new Promise(r => setTimeout(r, 10000));
+      if (!isBotRunning()) { restoreBackup(ts); startBot(); }
+    }
   } else {
-    addNarrative({ title: '💤 Ciclo sem alterações', body: 'Nenhuma alteração aprovada.', emoji: '😴' });
-    const history = memory.get('history') || [];
-    history.push({ timestamp: new Date().toISOString(), summary: analysisJson.summary, goals: planJson.goals, approved: false });
-    memory.set('history', history.slice(-30));
+    console.log('🌐 Expansor: todas as DEXs já integradas.');
   }
 }
 
 // ─── Orquestrador principal ──────────────────────────────
 async function main() {
-  console.log('🚀 Equipa Autónoma de Inovação iniciada.');
+  console.log('🚀 Equipa de Lucro Autónoma iniciada.');
   memory.load();
-  try { fs.writeFileSync('narratives.jsonl', ''); } catch {}
   startDashboard();
   startTelegramBot();
 
-  // Loop infinito
+  // Garantir que o bot está funcional
+  await guardian();
+
+  // Ciclos independentes
+  setInterval(guardian, GUARDIAN_INTERVAL_MS);
+  setInterval(profitAnalyst, OPTIMIZER_INTERVAL_MS);
+  setInterval(expansor, EXPANSOR_INTERVAL_MS);
+
+  // Manter o processo vivo
   while (true) {
-    // 1. Diagnosticar antes de cada ciclo
-    let diagnosisJson;
-    try {
-      const diagRaw = await diagnosticator.diagnose();
-      diagnosisJson = extractJson(diagRaw);
-    } catch (e) {
-      console.error('❌ Diagnosticador:', e.message);
-      diagnosisJson = { critical: false };
-    }
-
-    if (diagnosisJson?.critical) {
-      console.log('🚨 Modo de emergência ativado.');
-      const fixed = await emergencyCycle(diagnosisJson);
-      if (!fixed) {
-        addNarrative({ title: '⚠️ Falha na auto‑reparação', body: 'A equipa não conseguiu corrigir o problema automaticamente. É necessária intervenção manual.', emoji: '🆘' });
-      }
-    } else {
-      // Ciclo normal de expansão
-      await normalCycle();
-    }
-
-    // Aguardar até ao próximo ciclo
-    console.log(`⏳ Próximo ciclo em ${CYCLE_INTERVAL_MS / 60000} minutos.`);
-    await new Promise(r => setTimeout(r, CYCLE_INTERVAL_MS));
+    await new Promise(r => setTimeout(r, 60000));
+    console.log('⏱️ Equipa ativa...');
   }
 }
 
