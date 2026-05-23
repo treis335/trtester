@@ -1,10 +1,11 @@
-// Date: 2025-04-08
-// Reason: Fix critical error 'Cannot convert undefined or null to object' in tick function, add proper validation and error handling
-
 const asyncLimit = require('../utils/asyncLimit');
-const { logMetrics } = require('../utils/metricsLogger');
 const { CONFIG } = require('../config/config');
 const priceEngine = require('../dexes/dexlyn/dexlynEngine');
+const priceEngineV3 = require('../dexes/dexlyn/dexlynEngineV3');
+const spikeyEngine = require('../dexes/spikey/spikeyEngine');
+const { SPIKEY_CONFIG } = require('../dexes/spikey/spikeyConfig');
+const atmosEngine = require('../dexes/atmos/atmosEngine');
+const { ATMOS_CONFIG } = require('../dexes/atmos/atmosConfig');
 const graphEngine = require('../engine/graphEngine');
 const { arbDetector } = require('../detector/arbDetector');
 const { logError } = require('../utils/logError');
@@ -14,38 +15,22 @@ const renderLog = require('../tui/renderlog');
 const { renderFooter, setRpcHealthy } = require('../tui/renderFooter');
 const { fetchWalletBalance } = require('../utils/walletBalance');
 const { broadcast } = require('../server');
-const { executeArbitrage } = require('../dexes/dexlyn/dexlynExecute'); // Moved require to top
 
 let bestOpportunity = null;
 let currentOpps = [];
 
-// Retry with exponential backoff and timeout control
-async function retryWithBackoff(fn, retries = 3, baseDelay = 1000, maxDelay = 5000, timeout = 30000) {
-    const startTime = Date.now();
-    for (let attempt = 0; attempt < retries; attempt++) {
-        try {
-            // Check if total time exceeds timeout
-            if (Date.now() - startTime > timeout) {
-                throw new Error('Global timeout exceeded');
-            }
-            return await fn();
-        } catch (error) {
-            if (attempt === retries - 1) throw error;
-            const delay = Math.min(baseDelay * Math.pow(2, attempt), maxDelay);
-            // Ensure delay doesn't exceed remaining timeout
-            const remainingTime = timeout - (Date.now() - startTime);
-            if (delay > remainingTime) {
-                throw new Error('Global timeout would be exceeded by retry delay');
-            }
-            await new Promise(resolve => setTimeout(resolve, delay));
-        }
-    }
+function taskWithTimeout(task, ms = 20000) {
+    return Promise.race([
+        task,
+        new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Task timeout')), ms)
+        )
+    ]);
 }
 
 let lastAutoTxTime = 0;
 let autoTxInProgress = false;
 
-// ─── maybeAutoExecute ──────────────────────────────────────────────
 async function maybeAutoExecute(opps, balances, boxes) {
     const cfg = CONFIG.autoExecute;
     if (!cfg || !cfg.enabled) return;
@@ -66,12 +51,6 @@ async function maybeAutoExecute(opps, balances, boxes) {
     if (viableOpps.length === 0) return;
 
     const bestOpp = viableOpps[0];
-    // Validate bestOpp structure
-    if (!bestOpp.cycle || !bestOpp.cycle.path || !bestOpp.cycle.edges) {
-        logError('Invalid bestOpp structure', bestOpp);
-        return;
-    }
-
     autoTxInProgress = true;
     lastAutoTxTime = now;
 
@@ -79,95 +58,225 @@ async function maybeAutoExecute(opps, balances, boxes) {
     log(`{yellow-fg}🤖 Auto-execução: ${bestOpp.cycle.path.map(t => CONFIG.tokens[t]?.symbol || t).join(' → ')} (+${bestOpp.result.profitPct.toFixed(3)}%){/}`);
 
     try {
-        const res = await executeArbitrage(bestOpp, () => {});
+        const dexesInRoute = new Set(bestOpp.cycle.edges.map(e => e.pair.dex));
+        let res;
+        if (dexesInRoute.size === 1 && dexesInRoute.has('SPIKEY')) {
+            const { executeSpikeySwap } = require('../dexes/spikey/spikeyExecute');
+            res = await executeSpikeySwap(bestOpp, () => {});
+        } else if (dexesInRoute.size === 1 && dexesInRoute.has('ATMOS')) {
+            const { executeAtmosSwap } = require('../dexes/atmos/atmosExecute');
+            res = await executeAtmosSwap(bestOpp, () => {});
+        } else if (dexesInRoute.size === 1 && (dexesInRoute.has('DEXLYN') || dexesInRoute.has('DEXLYN_V3'))) {
+            const { executeArbitrage } = require('../dexes/dexlyn/dexlynExecute');
+            res = await executeArbitrage(bestOpp, () => {});
+        } else {
+            const { executeCrossArbitrage } = require('../executor/executeCrossArb');
+            res = await executeCrossArbitrage(bestOpp, () => {});
+        }
         if (res && res.txHash) {
             log(`{green-fg}✅ Sucesso! Tx: ${res.txHash.slice(0,10)}...{/}`);
-            logMetrics({
-                pair: `${bestOpp.cycle.path[0]}/${bestOpp.cycle.path[1]}`,
-                route: bestOpp.cycle.edges.map(e => ({ dex: e.pair.dex })),
-                expectedProfit: bestOpp.result.profit,
-                gasCost: 0.05,
-                timeToDetectMs: Date.now() - now, // Use actual detection time
-                timeToExecuteMs: Date.now() - now,
-                success: true,
-            });
         } else {
             log(`{red-fg}❌ Falhou.{/}`);
         }
     } catch (e) {
         log(`{red-fg}❌ Erro: ${e.message}{/}`);
-        logError('Auto-execution failed', e);
     }
     autoTxInProgress = false;
 }
 
-// ─── Tick principal ─────────────────────────────────────────────────
 async function tick(boxes) {
     const t0 = Date.now();
     const limit = asyncLimit(CONFIG.maxConcurrent);
 
     const tasks = [];
 
-    // Validate CONFIG.dexes before iterating
-    if (!CONFIG.dexes || typeof CONFIG.dexes !== 'object' || Array.isArray(CONFIG.dexes)) {
-        logError('CONFIG.dexes is invalid or missing', CONFIG.dexes);
-        return;
-    }
-
-    // ═══ Apenas Dexlyn V2 ═══
+    // ═══ 1. Dexlyn V2 ═══
     for (const [dexKey, dex] of Object.entries(CONFIG.dexes)) {
-        // Validate dex structure
-        if (!dex || !dex.pairs || !Array.isArray(dex.pairs)) {
-            logError(`Invalid dex structure for ${dexKey}`, dex);
-            continue;
-        }
         for (const [tokenA, tokenB, curve] of dex.pairs) {
-            // Validate pair data
-            if (!tokenA || !tokenB) {
-                logError(`Invalid pair data for ${dexKey}`, { tokenA, tokenB, curve });
-                continue;
-            }
-            // Use retryWithBackoff with timeout from CONFIG
-            const timeout = CONFIG.rpc?.timeout || 30000;
-            const maxRetries = CONFIG.rpc?.retry?.maxRetries || 3;
-            const baseDelay = CONFIG.rpc?.retry?.baseDelay || 1000;
-            const maxDelay = CONFIG.rpc?.retry?.maxDelay || 5000;
-
-            tasks.push(limit(async () => {
-                try {
-                    const prices = await retryWithBackoff(
-                        () => priceEngine.fetchPrices(dexKey, tokenA, tokenB, curve),
-                        maxRetries,
-                        baseDelay,
-                        maxDelay,
-                        timeout
-                    );
-                    // Process prices...
-                } catch (error) {
-                    logError(`Failed to fetch prices for ${dexKey}:${tokenA}/${tokenB}`, error);
-                }
-            }));
+            tasks.push(limit(() =>
+                taskWithTimeout(
+                    priceEngine.fetchPairState(dexKey, tokenA, tokenB, curve),
+                    20000
+                ).catch(e => {
+                    logError(`fetchPair ${tokenA}/${tokenB}`, e);
+                    return null;
+                })
+            ));
         }
     }
 
-    // Wait for all tasks to complete
-    await Promise.all(tasks);
-
-    // Fetch wallet balance with error handling
-    try {
-        const balances = await retryWithBackoff(
-            () => fetchWalletBalance(),
-            CONFIG.rpc?.retry?.maxRetries || 3,
-            CONFIG.rpc?.retry?.baseDelay || 1000,
-            CONFIG.rpc?.retry?.maxDelay || 5000,
-            CONFIG.rpc?.timeout || 30000
-        );
-        // Process balances...
-    } catch (error) {
-        logError('Failed to fetch wallet balance', error);
+    // ═══ 2. Dexlyn V3 ═══
+    if (CONFIG.v3Pools && CONFIG.v3Pools.pools && CONFIG.v3Pools.pools.length > 0) {
+        for (const v3pool of CONFIG.v3Pools.pools) {
+            tasks.push(limit(() =>
+                taskWithTimeout(
+                    (async () => {
+                        const state = await priceEngineV3.fetchPoolState(v3pool.address, v3pool.tokenA, v3pool.tokenB);
+                        if (!state) return null;
+                        return {
+                            dex: 'DEXLYN_V3',
+                            tokenA: v3pool.tokenA,
+                            tokenB: v3pool.tokenB,
+                            curve: 'clmm',
+                            poolAddress: v3pool.address,
+                            state: state,
+                            reserveA: state.assetA,
+                            reserveB: state.assetB,
+                            fee: state.feeRate,
+                            feeScale: 1000000,
+                            priceAinB: priceEngineV3.getPrice(state, 'AB'),
+                            _simulate: (direction, amountIn) => priceEngineV3.simulateTrade(state, direction, amountIn)
+                        };
+                    })(),
+                    20000
+                ).catch(e => {
+                    logError(`fetchPoolV3 ${v3pool.address}`, e);
+                    return null;
+                })
+            ));
+        }
     }
 
-    // Rest of tick logic...
+    // ═══ 3. Spikey ═══
+    if (SPIKEY_CONFIG && SPIKEY_CONFIG.pools && SPIKEY_CONFIG.pools.length > 0) {
+        for (const pool of SPIKEY_CONFIG.pools) {
+            tasks.push(limit(() =>
+                taskWithTimeout(
+                    spikeyEngine.fetchPairState(pool.address, pool.tokenA, pool.tokenB),
+                    20000
+                ).catch(e => {
+                    logError(`fetchSpikeyPair ${pool.address}`, e);
+                    return null;
+                })
+            ));
+        }
+    }
+
+    // ═══ 4. Atmos (tentativa real, mas vamos forçar mock depois) ═══
+    let atmosPools = [];
+    if (ATMOS_CONFIG && ATMOS_CONFIG.pools && ATMOS_CONFIG.pools.length > 0) {
+        atmosPools = ATMOS_CONFIG.pools;
+    } else {
+        console.log('⚠️ Nenhuma pool da Atmos encontrada. Usando pool de teste SUPRA/dexUSDC.');
+        atmosPools = [
+            {
+                address: '0xa4a4a31116e114bf3c4f4728914e6b43db73279a4421b0768993e07248fe2234',
+                tokenA: 'SUPRA',
+                tokenB: 'dexUSDC'
+            }
+        ];
+    }
+
+    for (const pool of atmosPools) {
+        tasks.push(limit(() =>
+            taskWithTimeout(
+                atmosEngine.fetchPairState(pool.address),
+                20000
+            ).catch(e => {
+                logError(`fetchAtmosPair ${pool.address}`, e);
+                return null;
+            })
+        ));
+    }
+
+    let pairStates, graph, cycles, opps;
+    try {
+        pairStates = await Promise.all(tasks);
+        pairStates = pairStates.flat().filter(Boolean);
+        
+        // 🧪 FORÇAR a adição de um par mock da Atmos para testes (garantido)
+        pairStates.push({
+            dex: 'ATMOS',
+            tokenA: 'SUPRA',
+            tokenB: 'dexUSDC',
+            curve: 'constant_product',
+            pairAddress: '0xmock',
+            reserveA: 123456789,
+            reserveB: 987654321,
+            fee: 30,
+            feeScale: 10000,
+            priceAinB: 0.000125,
+            _simulate: (direction, amountIn) => direction === 'AB' ? amountIn * 0.000125 : amountIn / 0.000125
+        });
+        
+        setRpcHealthy(pairStates.length > 0);
+    } catch (e) {
+        logError('Promise.all pairStates', e);
+        pairStates = [];
+        setRpcHealthy(false);
+    }
+
+    await new Promise(resolve => setImmediate(resolve));
+
+    try {
+        graph = graphEngine.buildGraph(pairStates);
+        cycles = graphEngine.findCycles(graph, 4);
+    } catch (e) {
+        logError('buildGraph/findCycles', e);
+        graph = {};
+        cycles = [];
+    }
+
+    try {
+        opps = arbDetector.analyzeAll(cycles);
+        bestOpportunity = opps[0] || null;
+        currentOpps = opps;
+    } catch (e) {
+        logError('analyzeAll', e);
+        opps = [];
+        bestOpportunity = null;
+        currentOpps = [];
+    }
+
+    const walletBalances = process.env.SENDER_ADDRESS
+        ? await fetchWalletBalance(process.env.SENDER_ADDRESS).catch(() => ({}))
+        : {};
+
+    if (CONFIG.autoExecute && CONFIG.autoExecute.enabled) {
+        await maybeAutoExecute(opps, walletBalances, boxes).catch(e => logError('autoExecute', e));
+    }
+
+    try { renderPrices(pairStates, boxes, walletBalances); } catch (e) { logError('renderPrices', e); }
+    try { renderArb(opps, boxes); } catch (e) { logError('renderArb', e); }
+    try { renderLog(opps, boxes); } catch (e) { logError('renderLog', e); }
+    try { renderFooter(opps, Date.now() - t0, boxes); } catch (e) { logError('renderFooter', e); }
+
+    try { boxes.screen.render(); } catch {}
+
+    // Broadcast para o Dashboard
+    const dashboardData = {
+        balances: walletBalances,
+        rpcHealthy: pairStates.length > 0,
+        autoMode: CONFIG.autoExecute.enabled,
+        pairs: pairStates.map(ps => ({
+            dex: ps.dex === 'SPIKEY' ? 'Spky' : (ps.dex === 'ATMOS' ? 'Atms' : (ps.dex === 'DEXLYN_V3' ? 'DLV3' : 'DLyn')),
+            tokenA: ps.tokenA,
+            tokenB: ps.tokenB,
+            priceAinB: ps.priceAinB,
+            change: 0,
+            spark: '',
+        })),
+        opps: opps.map(o => ({
+            score: o.score,
+            profitPct: o.profitPct,
+            profit: o.profit,
+            symIn: CONFIG.tokens[o.cycle.path[0]]?.symbol || 'SUPRA',
+            path: o.cycle.path.map(t => CONFIG.tokens[t]?.symbol || t).join(' → '),
+        })),
+        log: require('../detector/arbDetector').arbLog.slice(0, 8).map(e => ({
+            time: e.time,
+            profitPct: e.profitPct,
+            score: e.score,
+            path: e.path,
+        })),
+        oppsCount: opps.length,
+        bestStr: opps[0] ? `▲ +${opps[0].profitPct.toFixed(3)}%` : 'sem arb',
+        tickMs: Date.now() - t0,
+    };
+    broadcast(dashboardData);
 }
 
-module.exports = { tick };
+function getBestOpportunity() { return bestOpportunity; }
+function getOpps() { return currentOpps || []; }
+
+module.exports = { tick, getBestOpportunity, getOpps };

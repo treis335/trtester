@@ -1,0 +1,48 @@
+{
+  "history": [
+    {
+      "timestamp": "2026-05-23T13:27:04.965Z",
+      "summary": "O bot está a falhar ao obter reservas do par 0x12797584c7d4839da44089a583b42189103336f1a71d728d5031bf200ea9b720 no Spikey DEX, com erro HTTP 500. Isto sugere um problema no servidor RPC ou no contrato inteligente. Recomenda-se verificar a conectividade com o RPC e a validade do endereço do par. As métricas não foram fornecidas, pelo que não é possível avaliar a rentabilidade. Mantém-se o par SUPRA/DEXUSDC como ativo.",
+      "goals": [
+        "Remover par problemático do Spikey DEX que está a gerar erros 500",
+        "Ajustar minProfitPct para 0.15 para filtrar oportunidades de baixa qualidade",
+        "Verificar e corrigir conectividade RPC para evitar falhas em requisições"
+      ],
+      "approved": false
+    },
+    {
+      "timestamp": "2026-05-23T13:30:11.125Z",
+      "summary": "O bot apresenta erros recorrentes de status 500 no Spikey DEX, provavelmente devido a problemas de RPC ou contratos. Recomenda-se verificar a conectividade com o RPC do Spikey e, se persistir, considerar remover ou desativar temporariamente esse DEX. Nenhuma métrica de lucro foi fornecida, mas mantém-se o par SUPRA/DEXUSDC como ativo. Sugere-se manter minProfitPct em 0.15% para evitar execuções com margem muito baixa.",
+      "goals": [
+        "Corrigir erros 500 na Spikey e reintegrá-la com retry robusto",
+        "Adicionar pools da Atmos aos pares de arbitragem",
+        "Integrar a DEX Leoex usando a ABI disponível",
+        "Ajustar minProfitPct para capturar mais oportunidades",
+        "Adicionar pares cross‑DEX entre Dexlyn e Spikey"
+      ],
+      "approved": false
+    },
+    {
+      "timestamp": "2026-05-23T13:36:53.635Z",
+      "summary": "O bot encontrou erros repetidos de requisição HTTP 500 ao tentar obter reservas de um par específico na DEX Spikey, o que pode indicar problemas de conectividade com o RPC ou instabilidade na rede. Não há métricas de lucro disponíveis para análise. Recomenda-se verificar a saúde do RPC e considerar aumentar o intervalo entre chamadas ou adicionar fallback de RPCs. O par SUPRA/DEXUSDC parece estar operacional, mas sem dados de lucro, não é possível sugerir ajustes nos parâmetros de arbitragem.",
+      "goals": [
+        "Integrar a DEX Atmos usando a ABI disponível e adicionar os seus pares de liquidez ao bot",
+        "Integrar a DEX Leoex usando a ABI disponível e adicionar os seus pares de liquidez ao bot",
+        "Criar um dashboard web local (HTML+JS) para monitorizar em tempo real as oportunidades de arbitragem, lucros, estado das DEXs e logs de erros",
+        "Implementar retry com backoff exponencial e fallback de RPC para o par problemático do Spikey DEX (0x12797584c7d4839da44089a583b42189103336f1a71d728d5031bf200ea9b720) para evitar erros 500",
+        "Ajustar minProfitPct para 0.15% e aumentar pollingMs para 4000ms para reduzir carga e filtrar oportunidades de baixa qualidade",
+        "Adicionar pares cross‑DEX entre Dexlyn e Atmos, e entre Dexlyn e Leoex, para expandir as oportunidades de arbitragem",
+        "Criar um endpoint de API REST local (ex: /metrics) para alimentar o dashboard com dados em tempo real"
+      ],
+      "approved": false
+    }
+  ],
+  "narrativeLog": [
+    {
+      "timestamp": "2026-05-23T13:43:17.496Z",
+      "title": "🚨 Alerta",
+      "body": "Problema crítico: Erros 500 em múltiplas chamadas RPC para os DEXs spikey e atmos, indicando falha na obtenção de reservas de pares. O bot está a falhar consistentemente em fetchPairState e getReserves, o que impede a execução de arbitragem.. A equipa está a trabalhar na correção.",
+      "emoji": "🚨"
+    }
+  ]
+}

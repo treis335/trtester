@@ -14,6 +14,8 @@
     "axios": "^1.16.1",
     "blessed": "^0.1.81",
     "dotenv": "^17.4.2",
+    "http-server": "^14.1.1",
+    "node-telegram-bot-api": "^0.67.0",
     "supra-l1-sdk": "^5.0.2",
     "tweetnacl": "^1.0.3",
     "ws": "^8.20.1"

@@ -5,29 +5,37 @@ const path = require('path');
 let botProcess = null;
 
 function startBot() {
-  if (botProcess) {
+  if (botProcess && botProcess.exitCode === null) {
     console.log('⚠️ Bot já está a correr.');
     return;
   }
-  console.log('🚀 Iniciar bot de arbitragem...');
+  console.log('🚀 A iniciar o bot de arbitragem...');
   botProcess = spawn('node', ['index.js'], {
     cwd: path.join(__dirname, '..', '..'),
-    stdio: 'ignore', // ou 'pipe' para capturar logs
+    stdio: 'inherit',
   });
   botProcess.on('exit', (code) => {
-    console.log(`Bot parou com código ${code}`);
+    console.log(`🛑 Bot parou com código ${code}`);
+    botProcess = null;
+  });
+  botProcess.on('error', (err) => {
+    console.error('❌ Erro ao iniciar bot:', err.message);
     botProcess = null;
   });
 }
 
 function stopBot() {
-  if (!botProcess) {
+  if (!botProcess || botProcess.exitCode !== null) {
     console.log('⚠️ Bot não está a correr.');
     return;
   }
-  console.log('🛑 Parar bot...');
+  console.log('🛑 A parar bot...');
   botProcess.kill('SIGTERM');
-  botProcess = null;
+  setTimeout(() => {
+    if (botProcess && botProcess.exitCode === null) {
+      botProcess.kill('SIGKILL');
+    }
+  }, 5000);
 }
 
 function isBotRunning() {

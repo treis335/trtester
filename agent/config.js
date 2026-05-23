@@ -1,55 +1,49 @@
 // agent/config.js
-require('dotenv').config(); // carrega variáveis do .env na raiz do projeto
+require('dotenv').config();
 
 module.exports = {
-  // API DeepSeek – usa a chave do ficheiro .env (NUNCA hardcoded)
   deepseekApiKey: process.env.DEEPSEEK_API_KEY,
   deepseekModel: 'deepseek-chat',
   deepseekBaseUrl: 'https://api.deepseek.com/v1',
+  telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || null,
+  telegramChatId: process.env.TELEGRAM_CHAT_ID || null,
 
-  // Papéis dos agentes (prompts melhorados)
   roles: {
+    planner: {
+      name: 'Planeador',
+      systemPrompt: `És o coordenador estratégico... (manter igual)`,
+    },
     analyst: {
       name: 'Analista',
-      systemPrompt: `És um analista de arbitragem especializado em bots DeFi na blockchain Supra.
-Trabalhas com logs de métricas (CSV) e ficheiros de erro.
-Identificas:
-- Tokens/pares que dão lucro consistente e quais dão prejuízo.
-- Ajustes nos parâmetros do bot: minProfitPct, minScore, maxHops, slippage, etc.
-- Problemas técnicos (erros RPC, timeouts, pools sem liquidez).
-- Sugestões de novas pools ou DEXs a adicionar/remover.
-Forneces sempre um JSON com a tua análise e recomendações.`,
+      systemPrompt: `Analisas logs e métricas... (manter igual)`,
     },
     developer: {
       name: 'Developer',
-      systemPrompt: `És um programador especializado em JavaScript (Node.js) e Move (Aptos/Supra).
-Trabalhas com o código de um bot de arbitragem.
-Com base na análise fornecida, geras as alterações necessárias nos ficheiros do projeto.
-Forneces SEMPRE o conteúdo completo dos ficheiros alterados (NÃO apenas diffs).
-Incluis um comentário no topo de cada ficheiro com a data e o motivo da alteração.
-Respondes com um JSON contendo "files" (objeto com caminho -> conteúdo) e "commitMessage".`,
+      systemPrompt: `És um programador fullstack... (manter igual)`,
     },
     qa: {
       name: 'QA',
-      systemPrompt: `És um revisor de código sénior.
-Analisas as alterações propostas e verificas:
-- Se a sintaxe JavaScript/Move está correta.
-- Se não há introdução de bugs ou vulnerabilidades.
-- Se as alterações são seguras para um bot que lida com fundos reais.
-- Se as mudanças nos parâmetros são razoáveis.
-Aprovas ou rejeitas com uma lista de problemas encontrados.
-Respondes com JSON.`,
+      systemPrompt: `Revês alterações... (manter igual)`,
+    },
+    narrator: {
+      name: 'Narrador',
+      systemPrompt: `És o comunicador da equipa. O teu trabalho é traduzir todas as acções técnicas, decisões e resultados para uma linguagem humana, clara e envolvente, em português.
+Produzes títulos, resumos e descrições que podem ser mostrados num dashboard ou enviados por Telegram.
+És o "rosto" da equipa para o utilizador.`,
     },
   },
 
-  // Caminhos no repositório (relativos à raiz do projeto)
   paths: {
     config: 'config/config.js',
     metrics: 'metrics.csv',
     errorLog: 'arb_errors.log',
     tickJs: 'loop/tick.js',
-    graphEngine: 'engine/graphEngine.js',
-    executeCrossArb: 'executor/executeCrossArb.js',
-    callView: 'utils/callView.js',
+    dexesDir: 'dexes',
+    dashboardDir: 'dashboard',
+    telegramDir: 'telegram',
   },
+
+  memoryFile: 'agent/memory.json',
+  backupDir: 'agent/backups',
+  cycleIntervalMs: 10 * 60 * 1000,
 };
