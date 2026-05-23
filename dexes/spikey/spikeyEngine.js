@@ -1,69 +1,93 @@
-// dexes/spikey/spikeyEngine.js — Lê pools da Spikey com _simulate para cross‑DEX
-const { CONFIG } = require('../../config/config');
-const { logError } = require('../../utils/logError');
+// dexes/spikey/spikeyEngine.js
 const callView = require('../../utils/callView');
+const { logError } = require('../../utils/logError');
+const { CONFIG } = require('../../config/config');
+const Cache = require('../../utils/cache');
 
-const SPIKEY = '0x3045d27b5fada1e30897a741fb184e48ef0bff3717aea23918ebc1e5c7153083';
-const DECIMALS = { SUPRA: 1e8, CASH: 1e8, SPIKE: 1e3 };
-function getDecimals(sym) { return DECIMALS[sym] || 1e6; }
+const MODULE_ADDRESS = '0xa4a4a31116e114bf3c4f4728914e6b43db73279a4421b0768993e07248fe2234';
+const reservesCache = new Cache(2000);
 
 const spikeyEngine = {
-    async fetchPairState(poolAddress, tokenA, tokenB) {
-        try {
-            const [reserves, fee] = await Promise.all([
-                callView(SPIKEY, 'amm_pair::get_reserves', [], [poolAddress]),
-                callView(SPIKEY, 'amm_controller::get_swap_fee', [], []).catch(() => [25]),
-            ]);
-            if (!reserves || !Array.isArray(reserves) || reserves.length < 2) return null;
-            const r0 = Number(reserves[0]), r1 = Number(reserves[1]);
-            if (r0 === 0 && r1 === 0) return null;
-            const feeBps = Number(Array.isArray(fee) ? fee[0] : fee);
-            const decA = getDecimals(tokenA), decB = getDecimals(tokenB);
-            const amountOut = this.getAmountOut(r0, r1, decA, feeBps, 10000);
-            const priceAinB = amountOut / decB;
+  async getReserves(poolAddr) {
+    try {
+      const result = await callView(MODULE_ADDRESS, 'get_pool_reserves', [], [poolAddr]);
+      const reserves = {
+        reserve0: BigInt(result[0]),
+        reserve1: BigInt(result[1]),
+      };
+      return reserves;
+    } catch (e) {
+      logError(`spikeyGetReserves ${poolAddr}`, e);
+      // Retorna reservas 0 para ser filtrado mais tarde
+      return { reserve0: 0n, reserve1: 0n };
+    }
+  },
 
-            // ⚡ Guarda referência para usar no _simulate
-            const engine = this;
+  async getAmountOut(amountIn, metaIn, metaOut) {
+    try {
+      const result = await callView(MODULE_ADDRESS, 'get_amount_out', [], [amountIn.toString(), metaIn, metaOut]);
+      return BigInt(result[0]);
+    } catch (e) {
+      logError(`spikeyGetAmountOut`, e);
+      return 0n;
+    }
+  },
 
-            return {
-                dex: 'SPIKEY',
-                tokenA, tokenB,
-                curve: 'constant_product',
-                pairAddress: poolAddress,
-                reserveA: r0, reserveB: r1,
-                fee: feeBps, feeScale: 10000,
-                priceAinB: isNaN(priceAinB) ? 0 : priceAinB,
-                // ⚡ Interface unificada — necessária para o optimalSize
-                _simulate: (direction, amountIn) => engine.simulateTrade(
-                    { tokenA, tokenB, reserveA: r0, reserveB: r1, fee: feeBps, feeScale: 10000 },
-                    direction, amountIn
-                ),
-            };
-        } catch (e) {
-            logError(`fetchSpikeyPair ${poolAddress}`, e);
-            return null;
-        }
-    },
+  async fetchPairState(poolAddr, tokenA, tokenB) {
+    try {
+      const reserves = await this.getReserves(poolAddr);
+      const fee = 30;
+      const feeScale = 10000;
+      const decA = CONFIG.tokens[tokenA]?.decimals || 1e6;
+      const decB = CONFIG.tokens[tokenB]?.decimals || 1e6;
+      const amountOut = this.getAmountOutLocal(decA, Number(reserves.reserve0), Number(reserves.reserve1), fee, feeScale);
+      const priceAinB = amountOut / decB;
+      const engine = this;
+      return {
+        dex: 'SPIKEY',
+        tokenA: tokenA,
+        tokenB: tokenB,
+        curve: 'constant_product',
+        pairAddress: poolAddr,
+        reserveA: Number(reserves.reserve0),
+        reserveB: Number(reserves.reserve1),
+        fee,
+        feeScale,
+        priceAinB: isNaN(priceAinB) ? 0 : priceAinB,
+        _simulate: (direction, amountIn) => engine.simulateTrade(
+          { tokenA, tokenB, reserveA: Number(reserves.reserve0), reserveB: Number(reserves.reserve1), fee, feeScale },
+          direction, amountIn
+        ),
+      };
+    } catch (e) {
+      logError(`spikeyFetchPairState ${poolAddr}`, e);
+      return null;
+    }
+  },
 
-    getAmountOut(reserveIn, reserveOut, amountIn, fee, feeScale) {
-        if (reserveIn <= 0 || reserveOut <= 0 || amountIn <= 0) return 0;
-        const feeMul = BigInt(feeScale - fee);
-        const afterFee = (BigInt(Math.floor(amountIn)) * feeMul) / BigInt(feeScale);
-        if (afterFee <= 0n) return 0;
-        return Number((afterFee * BigInt(Math.floor(reserveOut))) / (BigInt(Math.floor(reserveIn)) + afterFee));
-    },
+  getAmountOutLocal(reserveIn, reserveOut, amountIn, fee, feeScale) {
+    if (!isFinite(reserveIn) || !isFinite(reserveOut) || !isFinite(amountIn)) return 0;
+    if (reserveIn <= 0 || reserveOut <= 0 || amountIn <= 0) return 0;
+    const feeMul = BigInt(Math.floor(feeScale - fee));
+    const amountInBig = BigInt(Math.floor(amountIn));
+    const reserveInBig = BigInt(Math.floor(reserveIn));
+    const reserveOutBig = BigInt(Math.floor(reserveOut));
+    const afterFee = (amountInBig * feeMul) / BigInt(Math.floor(feeScale));
+    if (afterFee <= 0n) return 0;
+    return Number((afterFee * reserveOutBig) / (reserveInBig + afterFee));
+  },
 
-    simulateTrade(ps, direction, amountIn) {
-        const decA = getDecimals(ps.tokenA);
-        const decB = getDecimals(ps.tokenB);
-        if (direction === 'AB') {
-            const raw = this.getAmountOut(ps.reserveA, ps.reserveB, amountIn * decA, ps.fee, ps.feeScale);
-            return raw / decB;
-        } else {
-            const raw = this.getAmountOut(ps.reserveB, ps.reserveA, amountIn * decB, ps.fee, ps.feeScale);
-            return raw / decA;
-        }
-    },
+  simulateTrade(ps, direction, amountIn) {
+    const decA = CONFIG.tokens[ps.tokenA]?.decimals || 1e6;
+    const decB = CONFIG.tokens[ps.tokenB]?.decimals || 1e6;
+    if (direction === 'AB') {
+      const raw = this.getAmountOutLocal(ps.reserveA, ps.reserveB, amountIn * decA, ps.fee, ps.feeScale);
+      return raw / decB;
+    } else {
+      const raw = this.getAmountOutLocal(ps.reserveB, ps.reserveA, amountIn * decB, ps.fee, ps.feeScale);
+      return raw / decA;
+    }
+  },
 };
 
-module.exports = spikeyEngine;
+module.exports = spikeyEngine;          

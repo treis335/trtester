@@ -1,35 +1,138 @@
-const graphEngine = {
-  buildGraph(pairStates) {
-    const graph = {};
-    for (const ps of pairStates) {
-      if (!ps) continue;
-      const { tokenA, tokenB } = ps;
-      if (!graph[tokenA]) graph[tokenA] = [];
-      if (!graph[tokenB]) graph[tokenB] = [];
-      graph[tokenA].push({ neighbor: tokenB, pair: ps, direction: 'AB' });
-      graph[tokenB].push({ neighbor: tokenA, pair: ps, direction: 'BA' });
-    }
-    return graph;
-  },
+// engine/graphEngine.js
+class GraphEngine {
+  constructor() {
+    this.vertices = new Map();   // address -> index
+    this.edges = [];             // { from, to, weight, rate, meta }
+  }
 
-  findCycles(graph, maxLen = 4) {
+  buildGraph(pairStates) {
+    this.clear();
+    for (const ps of pairStates) {
+      if (!ps || !ps.tokenA || !ps.tokenB) continue;
+      const addrA = this._getTokenAddress(ps.tokenA);
+      const addrB = this._getTokenAddress(ps.tokenB);
+      if (!addrA || !addrB) continue;
+
+      // Aresta A -> B
+      let rateAB = ps.priceAinB;
+      if (!rateAB || rateAB <= 0) {
+        rateAB = ps._simulate ? ps._simulate('AB', 1) : 1;
+      }
+      if (rateAB > 0) {
+        this.addEdge(addrA, addrB, rateAB, {
+          pair: ps,
+          dex: ps.dex,
+          from: ps.tokenA,
+          to: ps.tokenB,
+          direction: 'AB',
+        });
+      }
+
+      // Aresta B -> A
+      let rateBA = ps._simulate ? ps._simulate('BA', 1) : (rateAB ? 1 / rateAB : 0);
+      if (rateBA > 0) {
+        this.addEdge(addrB, addrA, rateBA, {
+          pair: ps,
+          dex: ps.dex,
+          from: ps.tokenB,
+          to: ps.tokenA,
+          direction: 'BA',
+        });
+      }
+    }
+    return this;
+  }
+
+  addEdge(fromAddr, toAddr, rate, meta = {}) {
+    if (!this.vertices.has(fromAddr)) this.vertices.set(fromAddr, this.vertices.size);
+    if (!this.vertices.has(toAddr)) this.vertices.set(toAddr, this.vertices.size);
+    this.edges.push({
+      from: this.vertices.get(fromAddr),
+      to: this.vertices.get(toAddr),
+      weight: -Math.log2(rate),
+      rate,
+      meta,
+    });
+  }
+
+  findCycles(graphInstance, maxHops = 4) {
     const cycles = [];
-    const dfs = (start, cur, path, edges, visited) => {
-      if (path.length > 1 && cur === start) { cycles.push({ path: [...path, start], edges: [...edges] }); return; }
-      if (path.length >= maxLen) return;
-      for (const edge of (graph[cur] || [])) {
-        if (edge.neighbor === start && path.length > 1) { cycles.push({ path: [...path, start], edges: [...edges, edge] }); continue; }
-        if (!visited.has(edge.neighbor)) {
-          visited.add(edge.neighbor);
-          dfs(start, edge.neighbor, [...path, edge.neighbor], [...edges, edge], visited);
-          visited.delete(edge.neighbor);
+    for (const [addr, idx] of this.vertices) {
+      const cycleMeta = this._findNegativeCycle(idx, maxHops);
+      if (cycleMeta && cycleMeta.length > 0) {
+        const path = [];
+        const edges = [];
+        let product = 1;
+        for (const meta of cycleMeta) {
+          path.push(meta.from);
+          edges.push({
+            pair: meta.pair,
+            from: meta.from,
+            to: meta.to,
+            dex: meta.dex,
+            direction: meta.direction,
+          });
+          product *= meta.rate;
+        }
+        path.push(cycleMeta[0].from);
+        cycles.push({ path, edges, product });
+      }
+    }
+    return cycles;
+  }
+
+  _findNegativeCycle(sourceIdx, maxHops) {
+    const V = this.vertices.size;
+    const dist = Array(V).fill(Infinity);
+    const predecessor = Array(V).fill(null);
+    const edgeUsed = Array(V).fill(null);
+    dist[sourceIdx] = 0;
+
+    for (let i = 1; i <= V - 1; i++) {
+      for (const edge of this.edges) {
+        if (dist[edge.from] + edge.weight < dist[edge.to] - 1e-12) {
+          dist[edge.to] = dist[edge.from] + edge.weight;
+          predecessor[edge.to] = edge.from;
+          edgeUsed[edge.to] = edge;
         }
       }
-    };
-    for (const token of Object.keys(graph)) dfs(token, token, [token], [], new Set([token]));
-    const seen = new Set();
-    return cycles.filter(c => { const k = c.path.slice(0,-1).sort().join('-'); if (seen.has(k)) return false; seen.add(k); return true; });
-  },
-};
+    }
 
-module.exports = graphEngine;
+    for (const edge of this.edges) {
+      if (dist[edge.from] + edge.weight < dist[edge.to] - 1e-12) {
+        const cycleEdges = [];
+        let current = edge.to;
+        const visited = new Set();
+        while (!visited.has(current)) {
+          visited.add(current);
+          if (edgeUsed[current]) {
+            cycleEdges.push(edgeUsed[current]);
+            current = predecessor[current];
+          } else break;
+        }
+        if (cycleEdges.length > 0 && cycleEdges.length <= maxHops) {
+          let profit = 1;
+          for (const e of cycleEdges) profit *= e.rate;
+          if (profit > 1) {
+            return cycleEdges.map(e => e.meta);
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  clear() {
+    this.vertices.clear();
+    this.edges = [];
+  }
+
+  _getTokenAddress(symbol) {
+    const { CONFIG } = require('../config/config');
+    const token = CONFIG.tokens[symbol];
+    if (!token) return null;
+    return token.type;
+  }
+}
+
+module.exports = new GraphEngine();

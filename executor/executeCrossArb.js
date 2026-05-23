@@ -1,3 +1,4 @@
+// executor/executeCrossArb.js
 const fs = require('fs');
 const path = require('path');
 const { SupraClient, HexString, SupraAccount, BCS, TxnBuilderTypes } = require('supra-l1-sdk');
@@ -9,17 +10,12 @@ const scriptBytecode = (() => {
     catch (e) { console.error('Script cross‑DEX não encontrado.'); return null; }
 })();
 
-/**
- * Retorna o endereço do módulo que contém as curvas para cada DEX.
- */
 function getModuleAddress(dex) {
     if (dex === 'SPIKEY') return '0x3045d27b5fada1e30897a741fb184e48ef0bff3717aea23918ebc1e5c7153083';
     if (dex === 'ATMOS') return '0xa4a4a31116e114bf3c4f4728914e6b43db73279a4421b0768993e07248fe2234';
     return CONFIG.dexes.DEXLYN.moduleAddress;
 }
-/**
- * Retorna o caminho completo da curva (ex: "0x...::curves::Uncorrelated").
- */
+
 function getCurvePath(dex, curve) {
     const moduleAddr = getModuleAddress(dex);
     if (curve === 'constant_product' || curve === 'clmm') {
@@ -37,6 +33,12 @@ function getSlippage(reserveOut, decimalsOut) {
     if (liq < 1000) return 0.98;
     if (liq < 10000) return 0.99;
     return 0.995;
+}
+
+function selectBestOpportunity(opportunities) {
+  return opportunities
+    .filter(o => (o.result?.profit || 0) > 0)
+    .sort((a, b) => (b.result.profit - a.result.profit))[0];
 }
 
 async function executeCrossArbitrage(opportunity, onLog = () => {}) {
@@ -58,7 +60,6 @@ async function executeCrossArbitrage(opportunity, onLog = () => {}) {
         const tokenB = CONFIG.tokens[cycle.path[1]];
         const tokenC = CONFIG.tokens[cycle.path[2]];
 
-        // Determinar a curva de cada hop com o endereço da DEX correta
         const curveAB = getCurvePath(steps[0].pair.dex, steps[0].pair.curve);
         const curveBC = getCurvePath(steps[1].pair.dex, steps[1].pair.curve);
         const curveCA = getCurvePath(steps[2].pair.dex, steps[2].pair.curve);
